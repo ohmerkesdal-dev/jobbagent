@@ -1,101 +1,143 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { UpgradeModal } from "@/components/UpgradeModal";
+import {
+  hasReachedFreeLimit,
+  incrementAnalysisCount,
+  RESULT_STORAGE_KEY,
+} from "@/lib/client-storage";
+import { isAnalysisResult } from "@/lib/analysis-types";
+
+const STRIPE_URL =
+  process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_URL ?? "https://stripe.com";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const router = useRouter();
+  const [signal, setSignal] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+  async function handleAnalyze(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    const trimmed = signal.trim();
+    if (!trimmed) {
+      setError("Lim inn et signal først.");
+      return;
+    }
+
+    if (hasReachedFreeLimit()) {
+      setUpgradeOpen(true);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signal: trimmed }),
+      });
+      const data: unknown = await res.json();
+
+      if (!res.ok) {
+        const err =
+          data &&
+          typeof data === "object" &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : "Noe gikk galt.";
+        setError(err);
+        return;
+      }
+
+      if (!isAnalysisResult(data)) {
+        setError("Ugyldig svar fra serveren.");
+        return;
+      }
+
+      incrementAnalysisCount();
+      sessionStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(data));
+      router.push("/resultat");
+    } catch {
+      setError("Kunne ikke koble til serveren. Prøv igjen.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 pb-16 pt-12 sm:px-6 sm:pt-20">
+        <header className="mb-10 text-center sm:mb-14">
+          <p className="text-xs font-medium uppercase tracking-[0.2em] text-emerald-500/90">
+            Jobbagent.no
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
+            Finn jobber før de lyses ut
+          </h1>
+          <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-zinc-400">
+            Lim inn et LinkedIn-innlegg, en nyhetsartikkel eller en Finn-annonse.
+            Vi tolker signalet og gir deg en klar kontaktstrategi og melding.
+          </p>
+        </header>
+
+        <form onSubmit={handleAnalyze} className="flex flex-1 flex-col gap-4">
+          <label htmlFor="signal" className="sr-only">
+            Signal
+          </label>
+          <textarea
+            id="signal"
+            name="signal"
+            rows={12}
+            value={signal}
+            onChange={(e) => setSignal(e.target.value)}
+            placeholder="Lim inn signal her..."
+            disabled={loading}
+            className="min-h-[220px] w-full resize-y rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-4 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 disabled:opacity-60"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+          {error && (
+            <p className="text-sm text-red-400" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="submit"
+              disabled={loading}
+              className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-8 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                    aria-hidden
+                  />
+                  Analyserer…
+                </span>
+              ) : (
+                "Analyser signal"
+              )}
+            </button>
+            <p className="text-xs text-zinc-500">
+              3 gratis analyser. Ingen innlogging i beta.
+            </p>
+          </div>
+        </form>
+      </div>
+
+      <UpgradeModal
+        open={upgradeOpen}
+        onClose={() => setUpgradeOpen(false)}
+        stripeUrl={STRIPE_URL}
+      />
     </div>
   );
 }
