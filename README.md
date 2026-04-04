@@ -1,6 +1,6 @@
 # ny-app
 
-Egen Next.js-app, **adskilt** fra [Lånekassen app / Studentliv](../L%C3%A5nekassen%20app). Åpne denne mappen i et eget Cursor-vindu (`File → Open Folder`).
+Egen Next.js-app, **adskilt** fra Studentliv-prosjektet i mappen `Lånekassen app` (samme nivå som `ny-app` under `Cursor arbeid`). Åpne **denne** mappen i et eget Cursor-vindu: **File → Open Folder → `ny-app`**.
 
 ---
 
