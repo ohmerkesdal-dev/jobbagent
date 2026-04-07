@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -16,7 +17,7 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "Jobbagent.no — jobber før de lyses ut",
   description:
-    "Analyser LinkedIn-signaler, nyheter og Finn-annonser. Få kontaktstrategi og ferdig melding.",
+    "Analyser LinkedIn-signaler, nyheter og stillingsannonser (NAV / arbeidsplassen). Få kontaktstrategi og ferdig melding.",
 };
 
 export default function RootLayout({
@@ -27,9 +28,9 @@ export default function RootLayout({
   return (
     <html lang="nb" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-zinc-950 font-sans antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[#0a0a0f] font-sans antialiased text-zinc-100`}
       >
-        {children}
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

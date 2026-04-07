@@ -2,12 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fallback så siden alltid har lesbar kontrast selv om Tailwind feiler */
+html {
+  background-color: #0a0a0f;
+  color: #fafafa;
+}
+
 :root {
-  --background: #09090b;
+  --background: #0a0a0f;
+  --surface: #111118;
   --foreground: #fafafa;
 }
 
 body {
+  margin: 0;
+  min-height: 100vh;
   color: var(--foreground);
-  background: var(--background);
+  background-color: var(--background);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-animate {
+  animation: modal-in 150ms ease-out forwards;
+}
+
+/* Unngår @apply med arbitrary values — mer robust på tvers av miljøer */
+.input-surface {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: #0a0a0f;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #fafafa;
+}
+
+.input-surface::placeholder {
+  color: #71717a;
+}
+
+.input-surface:focus {
+  outline: none;
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }

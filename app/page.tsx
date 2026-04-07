@@ -1,14 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import {
+  getStoredCvText,
+  getStoredProfile,
   hasReachedFreeLimit,
   incrementAnalysisCount,
+  profileForApiRequest,
   RESULT_STORAGE_KEY,
 } from "@/lib/client-storage";
 import { isAnalysisResult } from "@/lib/analysis-types";
+import { CV_TEXT_MAX_FOR_MODEL } from "@/lib/system-prompt";
+import type { StoredAnalysisPayload } from "@/lib/stored-result";
+import type { JobbagentProfil } from "@/lib/profile-types";
 
 const STRIPE_URL =
   process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_URL ?? "https://stripe.com";
@@ -19,6 +26,11 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [profil, setProfil] = useState<JobbagentProfil | null>(null);
+
+  useEffect(() => {
+    setProfil(getStoredProfile());
+  }, []);
 
   async function handleAnalyze(e: React.FormEvent) {
     e.preventDefault();
@@ -35,12 +47,25 @@ export default function Home() {
       return;
     }
 
+    const currentProfil = getStoredProfile();
+    const cvRaw = getStoredCvText();
+    const cvTextSlice =
+      cvRaw.length > 0 ? cvRaw.slice(0, CV_TEXT_MAX_FOR_MODEL) : undefined;
+
     setLoading(true);
     try {
+      const payload: Record<string, unknown> = { signal: trimmed };
+      if (currentProfil) {
+        payload.jobbagent_profil = profileForApiRequest(currentProfil);
+      }
+      if (cvTextSlice !== undefined && cvTextSlice.length > 0) {
+        payload.cvText = cvTextSlice;
+      }
+
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signal: trimmed }),
+        body: JSON.stringify(payload),
       });
       const data: unknown = await res.json();
 
@@ -62,7 +87,19 @@ export default function Home() {
       }
 
       incrementAnalysisCount();
-      sessionStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(data));
+
+      const stored: StoredAnalysisPayload = {
+        analysis: data,
+        originalSignal: trimmed,
+      };
+      if (currentProfil?.name) {
+        stored.usedProfile = {
+          name: currentProfil.name,
+          seeking: currentProfil.seeking,
+        };
+      }
+
+      sessionStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(stored));
       router.push("/resultat");
     } catch {
       setError("Kunne ikke koble til serveren. Prøv igjen.");
@@ -72,18 +109,44 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-[#0a0a0f] text-zinc-100">
       <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 pb-16 pt-12 sm:px-6 sm:pt-20">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {profil?.name ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-emerald-600/40 bg-emerald-950/50 px-3 py-1 text-xs font-medium text-emerald-400">
+                  Profil aktiv · {profil.name}
+                </span>
+              </div>
+              <Link
+                href="/profil"
+                className="text-sm text-zinc-400 underline-offset-4 hover:text-emerald-400 hover:underline"
+              >
+                Rediger profil →
+              </Link>
+            </>
+          ) : (
+            <Link
+              href="/profil"
+              className="text-sm text-zinc-400 underline-offset-4 hover:text-emerald-400 hover:underline"
+            >
+              Legg til profil for bedre resultater →
+            </Link>
+          )}
+        </div>
+
         <header className="mb-10 text-center sm:mb-14">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-emerald-500/90">
             Jobbagent.no
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Finn jobber før de lyses ut
+            Oppdag jobber før de lyses ut
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-zinc-400">
-            Lim inn et LinkedIn-innlegg, en nyhetsartikkel eller en Finn-annonse.
-            Vi tolker signalet og gir deg en klar kontaktstrategi og melding.
+            Lim inn et LinkedIn-innlegg, en nyhetsartikkel eller tekst fra en stillingsannonse
+            (for eksempel fra NAV / arbeidsplassen.no). Vi tolker signalet og gir deg en klar
+            kontaktstrategi og melding.
           </p>
         </header>
 
@@ -99,7 +162,7 @@ export default function Home() {
             onChange={(e) => setSignal(e.target.value)}
             placeholder="Lim inn signal her..."
             disabled={loading}
-            className="min-h-[220px] w-full resize-y rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-4 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 disabled:opacity-60"
+            className="min-h-[220px] w-full resize-y rounded-xl border border-white/[0.08] bg-[#111118] px-4 py-4 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 disabled:opacity-60"
           />
 
           {error && (

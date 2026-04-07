@@ -22,7 +22,7 @@ export function UpgradeModal({ open, onClose, stripeUrl }: UpgradeModalProps) {
         onClick={onClose}
         aria-label="Lukk"
       />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-700/80 bg-zinc-900 p-8 shadow-2xl">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-[#111118] p-8 shadow-2xl">
         <h2 id="upgrade-title" className="text-xl font-semibold text-zinc-100">
           Du har brukt dine gratis analyser
         </h2>
