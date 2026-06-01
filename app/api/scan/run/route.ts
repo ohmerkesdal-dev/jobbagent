@@ -27,24 +27,6 @@ function makeId(url: string, title: string): string {
     .slice(0, 24);
 }
 
-function tokenizeForFilter(p: ProfilScanInput): string[] {
-  const raw = `${p.industry} ${p.seeking}`.toLowerCase();
-  return raw
-    .split(/[\s,./]+/)
-    .map((w) => w.trim())
-    .filter((w) => w.length >= 2);
-}
-
-/** Return the first meaningful job-title word — strip cities and prepositions */
-function normaliserSøk(s: string): string {
-  const cities =
-    /\b(oslo|bergen|trondheim|stavanger|troms[øo]|kristiansand|drammen|fredrikstad|sandnes|remote|norge)\b/gi;
-  const clean = s
-    .replace(cities, "")
-    .replace(/\b(i|på|ved|fra|nær)\s+\S+/gi, "")
-    .trim();
-  return clean.split(/[\s,;]/)[0]?.trim() || s.split(/\s+/)[0] || s;
-}
 
 
 const NON_JOB_DOMAINS = [

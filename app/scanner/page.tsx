@@ -55,12 +55,6 @@ function signalLabel(f: ScannerFunn): string {
   return "Markedssignal";
 }
 
-function dagerIgjen(deadline: string | undefined): number | null {
-  if (!deadline) return null;
-  const t = new Date(deadline).getTime();
-  if (Number.isNaN(t)) return null;
-  return Math.ceil((t - Date.now()) / 86_400_000);
-}
 
 export default function ScannerPage() {
   const router = useRouter();

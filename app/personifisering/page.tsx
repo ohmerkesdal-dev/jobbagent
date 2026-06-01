@@ -502,7 +502,7 @@ export default function PersonifiseringPage() {
                 {visIntervju && (
                   <div className="mt-4 rounded-xl bg-zinc-50 p-4" style={{ border: "0.5px solid rgba(0,0,0,0.06)" }}>
                     <p className="text-sm font-medium text-zinc-900">
-                      "Fortell om en gang du oppdaget en feil andre hadde oversett."
+                      &quot;Fortell om en gang du oppdaget en feil andre hadde oversett.&quot;
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
                       💡 Tips: Bruk STAR-metoden — Situasjon, Oppgave, Handling, Resultat.
