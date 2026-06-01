@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { KarriereCoach } from "@/components/KarriereCoach";
+import type { KoachKontekst } from "@/components/KarriereCoach";
 import {
   buttonOverlay,
   buttonOutline,
@@ -26,6 +28,14 @@ import {
   getOppfølgingsKø,
   svarProsent,
 } from "@/lib/pipeline-stats";
+
+const AI_HINTS: Record<string, string> = {
+  Interessant: "Generer søknad mens motivasjonen er fersk",
+  Kontaktet: "Følg opp om 5 dager hvis ingen svar",
+  Intervju: "Forbered 3 STAR-historier til intervjuet",
+  Tilbud: "Sjekk lønnsnivå på Glassdoor før du svarer",
+  Avslått: "Be om tilbakemelding — det styrker neste søknad",
+};
 
 const STATUS_STYLE: Record<
   PipelineStatus,
@@ -134,6 +144,51 @@ export default function PipelinePage() {
   const aktive = countAktive(list);
   const sp = svarProsent(list);
 
+  // Coach-kontekst basert på pipeline-tilstand
+  const coachKontekst = useMemo((): KoachKontekst | null => {
+    if (!mounted) return null;
+    const tomPipeline = list.length === 0;
+    if (tomPipeline) return "pipeline-tom";
+
+    const cutoff24 = Date.now() - 24 * 60 * 60 * 1000;
+    const nyttAvslag = list.some(
+      (k) => k.kolonne === "Avslått" && new Date(k.dato).getTime() > cutoff24,
+    );
+    if (nyttAvslag) return "etter-avslag";
+
+    const cutoff5dager = Date.now() - 5 * 24 * 60 * 60 * 1000;
+    const ventePåSvar = list.some(
+      (k) =>
+        k.kolonne === "Kontaktet" &&
+        new Date(k.sendtDato).getTime() < cutoff5dager,
+    );
+    if (ventePåSvar) return "ingen-svar-5-dager";
+
+    return null;
+  }, [list, mounted]);
+
+  // Ukentlige påminnelser
+  const ukentligePaaminnelser = useMemo((): string[] => {
+    const antallInteressant = list.filter((k) => k.kolonne === "Interessant").length;
+    const antallKontaktet = list.filter((k) => k.kolonne === "Kontaktet").length;
+    const antallIntervju = list.filter((k) => k.kolonne === "Intervju").length;
+    const paaminnelser: string[] = [];
+
+    if (antallInteressant > 0 && antallKontaktet === 0) {
+      paaminnelser.push("Du har interessante stillinger — neste steg er å sende søknad. En god søknad tar 20 minutter med Jobbagent.");
+    }
+    if (antallKontaktet > 2) {
+      paaminnelser.push(`Du har ${antallKontaktet} aktive søknader ute. Det er bra — jobbsøking er et tallspill.`);
+    }
+    if (antallIntervju > 0) {
+      paaminnelser.push("Du har booket intervju — husk STAR-metoden og å forberede 2 spørsmål til dem.");
+    }
+    if (paaminnelser.length === 0) {
+      paaminnelser.push("Start med å legge til én stilling du er interessert i. Det første steget er alltid det vanskeligste.");
+    }
+    return paaminnelser;
+  }, [list]);
+
   const detail = detailId
     ? list.find((k) => k.id === detailId)
     : undefined;
@@ -194,6 +249,13 @@ export default function PipelinePage() {
           ))}
         </div>
 
+        {/* KarriereCoach */}
+        {coachKontekst && (
+          <div className="mt-6">
+            <KarriereCoach kontekst={coachKontekst} />
+          </div>
+        )}
+
         <div className="mt-10">
           {!mounted ? (
             <p className="text-sm text-zinc-500">Laster…</p>
@@ -247,11 +309,48 @@ export default function PipelinePage() {
                       </div>
                     </div>
                   </button>
+                  {AI_HINTS[k.kolonne] && (
+                    <div className="mt-1 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      <svg className="h-3.5 w-3.5 shrink-0 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                      </svg>
+                      {AI_HINTS[k.kolonne]}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </div>
+
+        {/* Motivasjonsfeed — "Denne uken" */}
+        {mounted && ukentligePaaminnelser.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Denne uken
+            </h2>
+            <div className="mt-3 flex flex-col gap-2">
+              {ukentligePaaminnelser.map((p, i) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-3 rounded-xl bg-emerald-50 px-4 py-3"
+                  style={{ border: "0.5px solid rgba(29,158,117,0.2)" }}
+                >
+                  <svg
+                    className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                  </svg>
+                  <p className="text-sm text-emerald-900">{p}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {manualOpen && (

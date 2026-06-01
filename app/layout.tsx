@@ -27,6 +27,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="nb">
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/tabler-icons.min.css"
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[#f5f4f0] font-sans antialiased text-zinc-900`}
       >

@@ -6,35 +6,35 @@ import { usePathname } from "next/navigation";
 import { loadPipeline } from "@/lib/pipeline-storage";
 import { getOppfølgingsKø } from "@/lib/pipeline-stats";
 
+const NAV_ITEMS = [
+  { href: "/finn", label: "Finn", icon: "ti-radar", aliases: ["/scanner"] },
+  { href: "/kjenn", label: "Kjenn deg selv", icon: "ti-user-heart", aliases: ["/personifisering"] },
+  { href: "/sok", label: "Søk smart", icon: "ti-file-pencil", aliases: ["/analyse"] },
+  { href: "/pipeline", label: "Følg opp", icon: "ti-layout-kanban", aliases: [] },
+];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [pipelineVarsel, setPipelineVarsel] = useState(0);
+  const pathname = usePathname();
 
   useEffect(() => {
     function tick() {
       setPipelineVarsel(getOppfølgingsKø(loadPipeline()).length);
     }
     tick();
-    function onPipeline() {
-      tick();
-    }
-    window.addEventListener("storage", onPipeline);
-    window.addEventListener("jobbagent-pipeline", onPipeline);
+    window.addEventListener("storage", tick);
+    window.addEventListener("jobbagent-pipeline", tick);
     const id = window.setInterval(tick, 60_000);
     return () => {
-      window.removeEventListener("storage", onPipeline);
-      window.removeEventListener("jobbagent-pipeline", onPipeline);
+      window.removeEventListener("storage", tick);
+      window.removeEventListener("jobbagent-pipeline", tick);
       window.clearInterval(id);
     };
   }, []);
 
-  const pathname = usePathname();
-
-  const getLinkClass = (href: string) =>
-    `rounded-full px-3 py-1 transition text-sm font-medium ${
-      pathname === href
-        ? "bg-black text-white shadow-sm"
-        : "text-zinc-700 hover:bg-black/5 hover:text-black"
-    }`;
+  function isActive(item: (typeof NAV_ITEMS)[0]): boolean {
+    return pathname === item.href || item.aliases.includes(pathname);
+  }
 
   return (
     <>
@@ -43,31 +43,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/" className="text-sm font-semibold tracking-tight text-black">
             Jobbagent
           </Link>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link href="/scanner" className={getLinkClass("/scanner")}>
-              Scanner
-            </Link>
-            <Link href="/profil" className={getLinkClass("/profil")}>
-              Profil
-            </Link>
-            <Link href="/personifisering" className={getLinkClass("/personifisering")}>
-              Personifisering
-            </Link>
-            <Link href="/analyse" className={getLinkClass("/analyse")}>
-              Analyse
-            </Link>
-            <Link
-              href="/pipeline"
-              className={`${getLinkClass("/pipeline")} relative flex items-center gap-1.5`}
-            >
-              Pipeline
-              {pipelineVarsel > 0 && (
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-                </span>
-              )}
-            </Link>
+          <div className="flex flex-wrap items-center gap-1">
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(item);
+              const isPipeline = item.href === "/pipeline";
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+                    active
+                      ? "rounded-[20px] bg-[#111] text-white"
+                      : "rounded-[20px] text-zinc-600 hover:bg-black/5 hover:text-black"
+                  }`}
+                >
+                  <i className={`ti ${item.icon} text-[15px]`} />
+                  <span>{item.label}</span>
+                  {isPipeline && pipelineVarsel > 0 && (
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </nav>
       </header>
