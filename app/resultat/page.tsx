@@ -8,18 +8,15 @@ import { RESULT_STORAGE_KEY } from "@/lib/client-storage";
 import { parseStoredAnalysisPayload } from "@/lib/stored-result";
 import type { UsedProfileMeta } from "@/lib/profile-types";
 import { prefillFromAnalysis } from "@/lib/pipeline-prefill";
-import type { PipelineKanal, PipelineKontakt } from "@/lib/pipeline-types";
-import {
-  addHoursToIso,
-  newId,
-  upsertKontakt,
-} from "@/lib/pipeline-storage";
+import type { PipelineKanal } from "@/lib/pipeline-types";
+import type { PipelineCard } from "@/lib/types";
+import { buttonAccent, buttonOverlay, buttonPrimary, buttonText } from "@/lib/ui-classes";
+import { loadPipeline, newId, savePipeline } from "@/lib/pipeline-storage";
 
 export default function ResultatPage() {
   const router = useRouter();
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [usedProfile, setUsedProfile] = useState<UsedProfileMeta | null>(null);
-  const [originalSignal, setOriginalSignal] = useState("");
   const [copied, setCopied] = useState(false);
   const [pipelineOpen, setPipelineOpen] = useState(false);
   const [navn, setNavn] = useState("");
@@ -33,17 +30,16 @@ export default function ResultatPage() {
   useEffect(() => {
     const raw = sessionStorage.getItem(RESULT_STORAGE_KEY);
     if (!raw) {
-      router.replace("/");
+      router.replace("/analyse");
       return;
     }
     const parsed = parseStoredAnalysisPayload(raw);
     if (!parsed) {
-      router.replace("/");
+      router.replace("/analyse");
       return;
     }
     setResult(parsed.analysis);
     setUsedProfile(parsed.usedProfile ?? null);
-    setOriginalSignal(parsed.originalSignal ?? "");
     const pre = prefillFromAnalysis(parsed.analysis);
     setNavn(pre.navn);
     setTittel(pre.tittel);
@@ -75,30 +71,24 @@ export default function ResultatPage() {
   function saveToPipeline(e: React.FormEvent) {
     e.preventDefault();
     if (!result) return;
-    if (!navn.trim() || !selskap.trim()) return;
+    if (!selskap.trim()) return;
     const sendtIso = new Date(sendtDato + "T12:00:00").toISOString();
-    const k: PipelineKontakt = {
+    const card: PipelineCard = {
       id: newId(),
-      navn: navn.trim(),
-      tittel: tittel.trim(),
       selskap: selskap.trim(),
-      kanal,
-      status: "sendt",
-      melding: result.linkedinMessage,
-      signal: originalSignal.trim() || result.signalExplanation,
-      sendtDato: sendtIso,
-      oppfølgingDato: addHoursToIso(sendtIso, 48),
+      rolle: tittel.trim() || "Uklar rolle",
+      dato: sendtIso,
       notat: "",
-      historikk: [{ status: "sendt", dato: sendtIso }],
+      kolonne: "Interessant",
     };
-    upsertKontakt(k);
+    savePipeline([...loadPipeline(), card]);
     setPipelineOpen(false);
     router.push("/pipeline");
   }
 
   if (!result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0f] text-zinc-400">
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f4f0] text-zinc-500">
         <p className="text-sm">Laster…</p>
       </div>
     );
@@ -107,26 +97,26 @@ export default function ResultatPage() {
   const pct = result.hiddenJobProbability;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-zinc-100">
+    <div className="min-h-screen bg-[#f5f4f0] text-zinc-950">
       <div className="mx-auto max-w-3xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
         <Link
-          href="/"
-          className="inline-flex text-sm text-emerald-500/90 hover:text-emerald-400"
+          href="/analyse"
+          className="inline-flex text-sm text-emerald-700 hover:text-emerald-600"
         >
           ← Ny analyse
         </Link>
 
-        <h1 className="mt-8 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+        <h1 className="mt-8 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl">
           Analyse
         </h1>
 
         {usedProfile && (
-          <div className="mt-6 rounded-xl border border-white/[0.08] bg-[#111118] px-4 py-3 text-sm text-zinc-300">
+          <div className="mt-6 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Personalisert for
             </p>
-            <p className="mt-1 font-medium text-zinc-100">{usedProfile.name}</p>
-            <p className="mt-0.5 text-zinc-400">{usedProfile.seeking}</p>
+            <p className="mt-1 font-medium text-zinc-950">{usedProfile.name}</p>
+            <p className="mt-0.5 text-zinc-600">{usedProfile.seeking}</p>
           </div>
         )}
 
@@ -135,10 +125,10 @@ export default function ResultatPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Signal
             </h2>
-            <p className="mt-2 text-lg font-medium text-zinc-100">
+            <p className="mt-2 text-lg font-medium text-zinc-950">
               {result.signalType}
             </p>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+            <p className="mt-3 text-sm leading-relaxed text-zinc-600">
               {result.signalExplanation}
             </p>
           </section>
@@ -148,16 +138,16 @@ export default function ResultatPage() {
               Sannsynlighet
             </h2>
             <div className="mt-3 flex flex-wrap items-baseline gap-2">
-              <span className="text-4xl font-semibold tabular-nums text-emerald-400">
+              <span className="text-4xl font-semibold tabular-nums text-emerald-600">
                 {pct}%
               </span>
               <span className="text-sm text-zinc-500">
                 for skjult/relevant stilling innen 60 dager
               </span>
             </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-zinc-200">
               <div
-                className="h-full rounded-full bg-emerald-500/80 transition-all"
+                className="h-full rounded-full bg-emerald-500 transition-all"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -167,7 +157,7 @@ export default function ResultatPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Kontaktstrategi
             </h2>
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
               {result.contactStrategy}
             </p>
           </section>
@@ -180,20 +170,20 @@ export default function ResultatPage() {
               <button
                 type="button"
                 onClick={copyMessage}
-                className="self-start rounded-lg border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 sm:self-auto"
+                className={buttonText}
               >
                 {copied ? "Kopiert" : "Kopier melding"}
               </button>
             </div>
-            <div className="mt-3 rounded-xl border border-white/[0.08] bg-[#111118] p-4">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+            <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-4">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-900">
                 {result.linkedinMessage}
               </p>
             </div>
             <button
               type="button"
               onClick={openPipelineModal}
-              className="mt-4 text-sm font-medium text-emerald-400/90 hover:text-emerald-300"
+              className={buttonAccent}
             >
               Lagre i pipeline →
             </button>
@@ -203,7 +193,7 @@ export default function ResultatPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Timing
             </h2>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+            <p className="mt-3 text-sm leading-relaxed text-zinc-700">
               {result.timingRecommendation}
             </p>
           </section>
@@ -214,16 +204,16 @@ export default function ResultatPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
-            className="modal-animate absolute inset-0 bg-black/75 backdrop-blur-sm"
+            className={buttonOverlay}
             onClick={() => setPipelineOpen(false)}
             aria-label="Lukk"
           />
           <div className="relative z-10 w-full max-w-lg">
             <form
               onSubmit={saveToPipeline}
-              className="modal-animate max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#111118] p-6 shadow-2xl"
+              className="modal-animate max-h-[90vh] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
             >
-              <h2 className="text-lg font-semibold text-zinc-50">
+              <h2 className="text-lg font-semibold text-zinc-950">
                 Lagre i pipeline
               </h2>
               <p className="mt-2 text-sm text-zinc-500">
@@ -289,13 +279,13 @@ export default function ResultatPage() {
                 <button
                   type="button"
                   onClick={() => setPipelineOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+                  className={buttonText}
                 >
                   Avbryt
                 </button>
                 <button
                   type="submit"
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+                  className={buttonPrimary}
                 >
                   Lagre og gå til pipeline
                 </button>

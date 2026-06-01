@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { loadPipeline } from "@/lib/pipeline-storage";
 import { getOppfølgingsKø } from "@/lib/pipeline-stats";
 
@@ -26,38 +27,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const pathname = usePathname();
+
+  const getLinkClass = (href: string) =>
+    `rounded-full px-3 py-1 transition text-sm font-medium ${
+      pathname === href
+        ? "bg-black text-white shadow-sm"
+        : "text-zinc-700 hover:bg-black/5 hover:text-black"
+    }`;
+
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-[#0a0a0f]/95 backdrop-blur-sm">
-        <nav className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Link
-            href="/"
-            className="text-sm font-semibold tracking-tight text-zinc-100"
-          >
+      <header className="sticky top-0 z-40 border-b border-zinc-200 bg-[#f5f4f0]/95 backdrop-blur-sm">
+        <nav className="mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <Link href="/" className="text-sm font-semibold tracking-tight text-black">
             Jobbagent
           </Link>
-          <div className="flex items-center gap-5 text-sm">
-            <Link
-              href="/"
-              className="text-zinc-400 transition hover:text-zinc-100"
-            >
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/scanner" className={getLinkClass("/scanner")}>
+              Scanner
+            </Link>
+            <Link href="/profil" className={getLinkClass("/profil")}>
+              Profil
+            </Link>
+            <Link href="/personifisering" className={getLinkClass("/personifisering")}>
+              Personifisering
+            </Link>
+            <Link href="/analyse" className={getLinkClass("/analyse")}>
               Analyse
             </Link>
             <Link
-              href="/scanner"
-              className="text-zinc-400 transition hover:text-zinc-100"
-            >
-              Scanner
-            </Link>
-            <Link
-              href="/profil"
-              className="text-zinc-400 transition hover:text-zinc-100"
-            >
-              Profil
-            </Link>
-            <Link
               href="/pipeline"
-              className="relative flex items-center gap-1.5 text-zinc-400 transition hover:text-zinc-100"
+              className={`${getLinkClass("/pipeline")} relative flex items-center gap-1.5`}
             >
               Pipeline
               {pipelineVarsel > 0 && (

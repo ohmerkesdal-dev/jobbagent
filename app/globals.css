@@ -2,16 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Fallback så siden alltid har lesbar kontrast selv om Tailwind feiler */
 html {
-  background-color: #0a0a0f;
-  color: #fafafa;
+  background-color: #f5f4f0;
+  color: #111111;
 }
 
 :root {
-  --background: #0a0a0f;
-  --surface: #111118;
-  --foreground: #fafafa;
+  --background: #f5f4f0;
+  --surface: #ffffff;
+  --foreground: #111111;
 }
 
 body {
@@ -34,20 +33,19 @@ body {
   animation: modal-in 150ms ease-out forwards;
 }
 
-/* Unngår @apply med arbitrary values — mer robust på tvers av miljøer */
 .input-surface {
   width: 100%;
   border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background-color: #0a0a0f;
+  border: 1px solid #e4e4e7;
+  background-color: #f4f4f5;
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   line-height: 1.5;
-  color: #fafafa;
+  color: #111111;
 }
 
 .input-surface::placeholder {
-  color: #71717a;
+  color: #a1a1aa;
 }
 
 .input-surface:focus {

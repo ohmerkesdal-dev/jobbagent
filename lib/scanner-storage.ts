@@ -1,6 +1,7 @@
 import type { ScannerFunn } from "./scanner-types";
 
-export const SCANNER_FUNN_KEY = "jobbagent_scanner_funn";
+export const SCANNER_FUNN_KEY = "scanResults";
+export const LEGACY_SCANNER_FUNN_KEY = "jobbagent_scanner_funn";
 export const SCANNER_SIST_KEY = "jobbagent_scanner_sist";
 export const SCANNER_SELSKAPER_KEY = "jobbagent_scanner_selskaper";
 
@@ -9,7 +10,9 @@ const MAX_LAGRET = 200;
 export function loadScannerFunn(): ScannerFunn[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(SCANNER_FUNN_KEY);
+    const raw =
+      window.localStorage.getItem(SCANNER_FUNN_KEY) ||
+      window.localStorage.getItem(LEGACY_SCANNER_FUNN_KEY);
     if (!raw) return [];
     const p: unknown = JSON.parse(raw);
     if (!Array.isArray(p)) return [];

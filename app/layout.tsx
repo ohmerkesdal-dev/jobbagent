@@ -26,9 +26,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="nb" className="dark">
+    <html lang="nb">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[#0a0a0f] font-sans antialiased text-zinc-100`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[#f5f4f0] font-sans antialiased text-zinc-900`}
       >
         <AppShell>{children}</AppShell>
       </body>

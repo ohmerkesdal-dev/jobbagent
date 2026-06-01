@@ -3,35 +3,33 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { extractTextFromPdfFile } from "@/lib/pdf-extract";
-import type { JobbagentProfil } from "@/lib/profile-types";
+import { buttonPrimary } from "@/lib/ui-classes";
+import type { UserProfile } from "@/lib/types";
 import {
   CV_TEXT_STORAGE_KEY,
-  PROFILE_STORAGE_KEY,
+  getStoredUserProfile,
+  saveUserProfile,
 } from "@/lib/client-storage";
+import { formControlRounded3xl } from "@/lib/ui-classes";
 
 const BIO_MAX = 200;
 const PDF_MAX_BYTES = 5 * 1024 * 1024;
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const s = r.result as string;
-      const i = s.indexOf(",");
-      resolve(i >= 0 ? s.slice(i + 1) : s);
-    };
-    r.onerror = () => reject(new Error("Kunne ikke lese filen"));
-    r.readAsDataURL(file);
-  });
-}
+const defaultProfile: UserProfile = {
+  navn: "",
+  soker: "",
+  bransje: "",
+  geografi: "",
+  bio: "",
+  erfaring: "1-3",
+  ferdigheter: [],
+  karrieremaal: "Annet",
+  cvText: undefined,
+  selskaper: [],
+};
 
 export default function ProfilPage() {
-  const [name, setName] = useState("");
-  const [seeking, setSeeking] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [geography, setGeography] = useState("");
-  const [bio, setBio] = useState("");
-  const [cvBase64, setCvBase64] = useState<string | undefined>();
+  const [profile, setProfile] = useState<UserProfile>(defaultProfile);
   const [cvFileName, setCvFileName] = useState<string | null>(null);
   const [cvStatus, setCvStatus] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
@@ -39,24 +37,15 @@ export default function ProfilPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
-      if (raw) {
-        const p = JSON.parse(raw) as Partial<JobbagentProfil>;
-        if (typeof p.name === "string") setName(p.name);
-        if (typeof p.seeking === "string") setSeeking(p.seeking);
-        if (typeof p.industry === "string") setIndustry(p.industry);
-        if (typeof p.geography === "string") setGeography(p.geography);
-        if (typeof p.bio === "string") setBio(p.bio);
-        if (typeof p.cvBase64 === "string" && p.cvBase64) {
-          setCvBase64(p.cvBase64);
-          setCvFileName("Lagret CV (PDF)");
-        }
+    const stored = getStoredUserProfile();
+    if (stored) {
+      setProfile(stored);
+      if (stored.cvText) {
+        setCvFileName("Lagret CV-tekst");
+        setCvStatus(
+          `CV-tekst hentet (${stored.cvText.length} tegn). Lagres ved «Lagre profil».`,
+        );
       }
-      const txt = localStorage.getItem(CV_TEXT_STORAGE_KEY);
-      if (txt) setCvStatus("CV-tekst er lagret fra tidligere opplasting.");
-    } catch {
-      /* ignore */
     }
   }, []);
 
@@ -76,23 +65,19 @@ export default function ProfilPage() {
     }
 
     try {
-      const [text, b64] = await Promise.all([
-        extractTextFromPdfFile(file),
-        fileToBase64(file),
-      ]);
-      setCvBase64(b64);
+      const text = await extractTextFromPdfFile(file);
+      setProfile((current) => ({ ...current, cvText: text }));
       setCvFileName(file.name);
       localStorage.setItem(CV_TEXT_STORAGE_KEY, text);
       setCvStatus(
         text.length > 0
           ? `Tekst hentet fra PDF (${text.length} tegn). Lagres ved «Lagre profil».`
-          : "Fant lite tekst i PDF. Du kan fortsatt lagre filen.",
+          : "Fant lite tekst i PDF. Du kan fortsatt lagre profilen.",
       );
     } catch (err) {
       setCvError(
         err instanceof Error ? err.message : "Kunne ikke lese PDF-en.",
       );
-      setCvBase64(undefined);
       setCvFileName(null);
     }
   }
@@ -103,16 +88,22 @@ export default function ProfilPage() {
     setSaved(false);
 
     try {
-      const profil: JobbagentProfil = {
-        name: name.trim(),
-        seeking: seeking.trim(),
-        industry: industry.trim(),
-        geography: geography.trim(),
-        bio: bio.trim().slice(0, BIO_MAX),
-        ...(cvBase64 ? { cvBase64 } : {}),
+      const nextProfile: UserProfile = {
+        ...profile,
+        navn: profile.navn.trim(),
+        soker: profile.soker.trim(),
+        bransje: profile.bransje.trim(),
+        geografi: profile.geografi.trim(),
+        bio: profile.bio.trim().slice(0, BIO_MAX),
+        ferdigheter: profile.ferdigheter.map((item) => item.trim()).filter(Boolean),
+        selskaper: profile.selskaper.map((item) => item.trim()).filter(Boolean),
       };
 
-      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profil));
+      saveUserProfile(nextProfile);
+      if (nextProfile.cvText) {
+        localStorage.setItem(CV_TEXT_STORAGE_KEY, nextProfile.cvText);
+      }
+      setProfile(nextProfile);
       setSaved(true);
       setTimeout(() => setSaved(false), 4000);
     } finally {
@@ -120,166 +111,215 @@ export default function ProfilPage() {
     }
   }
 
-  const bioLeft = Math.max(0, BIO_MAX - bio.length);
+  const bioLeft = Math.max(0, BIO_MAX - profile.bio.length);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-zinc-100">
-      <div className="mx-auto max-w-2xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
+    <div className="min-h-screen bg-[#f5f4f0] text-zinc-950">
+      <div className="mx-auto max-w-4xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
         <Link
           href="/"
-          className="inline-flex text-sm text-emerald-500/90 hover:text-emerald-400"
+          className="inline-flex text-sm text-emerald-700 hover:text-emerald-600"
         >
           ← Tilbake
         </Link>
 
-        <h1 className="mt-8 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-          Din profil
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-          Vi bruker profilen og CV-teksten til å tilpasse analyse og
-          LinkedIn-melding. Alt lagres lokalt i nettleseren din.
-        </p>
+        <div className="mt-8 rounded-[2rem] border border-zinc-200 bg-white p-8 shadow-sm">
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-950">
+            Din profil
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600">
+            Lag en personlig profil for bedre analyser, kontaktmeldinger og
+            selskapssøk. Alt lagres lokalt i nettleseren din.
+          </p>
 
-        <form onSubmit={handleSubmit} className="mt-10 flex flex-col gap-6">
-          <div>
-            <label
-              htmlFor="name"
-              className="block text-xs font-semibold uppercase tracking-wider text-zinc-500"
-            >
-              Navn
-            </label>
-            <input
-              id="name"
-              name="name"
-              type="text"
-              autoComplete="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-              placeholder="Fornavn Etternavn"
-            />
-          </div>
+          <form onSubmit={handleSubmit} className="mt-10 space-y-8">
+            <div className="grid gap-6 md:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Navn
+                </span>
+                <input
+                  value={profile.navn}
+                  onChange={(e) =>
+                    setProfile((current) => ({ ...current, navn: e.target.value }))
+                  }
+                  required
+                  className={`mt-2 ${formControlRounded3xl}`}
+                  placeholder="Fornavn Etternavn"
+                />
+              </label>
 
-          <div>
-            <label
-              htmlFor="seeking"
-              className="block text-xs font-semibold uppercase tracking-wider text-zinc-500"
-            >
-              Hva du søker
-            </label>
-            <input
-              id="seeking"
-              name="seeking"
-              type="text"
-              value={seeking}
-              onChange={(e) => setSeeking(e.target.value)}
-              required
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-              placeholder="F.eks. Sales, AE, salgsleder"
-            />
-          </div>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Hva du søker
+                </span>
+                <input
+                  value={profile.soker}
+                  onChange={(e) =>
+                    setProfile((current) => ({ ...current, soker: e.target.value }))
+                  }
+                  required
+                  className={`mt-2 ${formControlRounded3xl}`}
+                  placeholder="F.eks. Sales, AE, salgsleder"
+                />
+              </label>
 
-          <div>
-            <label
-              htmlFor="industry"
-              className="block text-xs font-semibold uppercase tracking-wider text-zinc-500"
-            >
-              Bransje
-            </label>
-            <input
-              id="industry"
-              name="industry"
-              type="text"
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              required
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-              placeholder="F.eks. Tech, SaaS, konsument"
-            />
-          </div>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Bransje
+                </span>
+                <input
+                  value={profile.bransje}
+                  onChange={(e) =>
+                    setProfile((current) => ({ ...current, bransje: e.target.value }))
+                  }
+                  required
+                  className={`mt-2 ${formControlRounded3xl}`}
+                  placeholder="F.eks. Tech, SaaS, konsument"
+                />
+              </label>
 
-          <div>
-            <label
-              htmlFor="geography"
-              className="block text-xs font-semibold uppercase tracking-wider text-zinc-500"
-            >
-              Geografi
-            </label>
-            <input
-              id="geography"
-              name="geography"
-              type="text"
-              value={geography}
-              onChange={(e) => setGeography(e.target.value)}
-              required
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-              placeholder="F.eks. Oslo, remote OK"
-            />
-          </div>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Geografi
+                </span>
+                <input
+                  value={profile.geografi}
+                  onChange={(e) =>
+                    setProfile((current) => ({ ...current, geografi: e.target.value }))
+                  }
+                  required
+                  className={`mt-2 ${formControlRounded3xl}`}
+                  placeholder="F.eks. Oslo, remote OK"
+                />
+              </label>
+            </div>
 
-          <div>
-            <label
-              htmlFor="bio"
-              className="block text-xs font-semibold uppercase tracking-wider text-zinc-500"
-            >
-              Kort bio / elevator pitch
-            </label>
-            <textarea
-              id="bio"
-              name="bio"
-              rows={4}
-              maxLength={BIO_MAX}
-              value={bio}
-              onChange={(e) => setBio(e.target.value.slice(0, BIO_MAX))}
-              className="mt-2 w-full resize-y rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 text-base text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/50 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-              placeholder="Maks 200 tegn."
-            />
-            <p className="mt-1 text-right text-xs text-zinc-500">
-              {bioLeft} tegn igjen
-            </p>
-          </div>
+            <div className="grid gap-6 md:grid-cols-3">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Erfaring
+                </span>
+                <select
+                  value={profile.erfaring}
+                  onChange={(e) =>
+                    setProfile((current) => ({
+                      ...current,
+                      erfaring: e.target.value as UserProfile["erfaring"],
+                    }))
+                  }
+                  className="mt-2 w-full rounded-3xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                >
+                  <option value="0-1">0-1 år</option>
+                  <option value="1-3">1-3 år</option>
+                  <option value="3-5">3-5 år</option>
+                  <option value="5-10">5-10 år</option>
+                  <option value="10+">10+ år</option>
+                </select>
+              </label>
 
-          <div>
-            <span className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              CV (PDF, maks 5 MB)
-            </span>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={onCvChange}
-              className="mt-2 block w-full text-sm text-zinc-400 file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:font-medium file:text-zinc-200 hover:file:bg-zinc-700"
-            />
-            {cvFileName && (
-              <p className="mt-2 text-sm text-zinc-400">{cvFileName}</p>
-            )}
-            {cvStatus && (
-              <p className="mt-2 text-sm text-emerald-400/90">{cvStatus}</p>
-            )}
-            {cvError && (
-              <p className="mt-2 text-sm text-red-400" role="alert">
-                {cvError}
+              <label className="block md:col-span-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Karrieremål
+                </span>
+                <select
+                  value={profile.karrieremaal}
+                  onChange={(e) =>
+                    setProfile((current) => ({
+                      ...current,
+                      karrieremaal: e.target.value,
+                    }))
+                  }
+                  className="mt-2 w-full rounded-3xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                >
+                  <option value="Annet">Annet</option>
+                  <option value="Fast jobb">Fast jobb</option>
+                  <option value="Konsulentrolle">Konsulentrolle</option>
+                  <option value="Lederrolle">Lederrolle</option>
+                  <option value="Bytte bransje">Bytte bransje</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Bio / elevator pitch
+              </span>
+              <textarea
+                value={profile.bio}
+                onChange={(e) =>
+                  setProfile((current) => ({
+                    ...current,
+                    bio: e.target.value.slice(0, BIO_MAX),
+                  }))
+                }
+                rows={4}
+                className={`mt-2 ${formControlRounded3xl} resize-y`}
+                placeholder="Kort beskrivelse som hjelper analysen med å forstå deg."
+              />
+              <p className="mt-2 text-right text-xs text-zinc-500">
+                {bioLeft} tegn igjen
               </p>
-            )}
-          </div>
+            </label>
 
-          {saved && (
-            <p
-              className="rounded-xl border border-emerald-700/50 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-300"
-              role="status"
-            >
-              Profil lagret
-            </p>
-          )}
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Selskaper å følge
+              </span>
+              <textarea
+                value={profile.selskaper.join("\n")}
+                onChange={(e) =>
+                  setProfile((current) => ({
+                    ...current,
+                    selskaper: e.target.value
+                      .split(/[\n,]+/)
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                rows={3}
+                className={`mt-2 ${formControlRounded3xl} resize-y`}
+                placeholder="Kolonial.no\nOtovo\n…"
+              />
+            </label>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-emerald-600 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-          >
-            {saving ? "Lagrer…" : "Lagre profil"}
-          </button>
-        </form>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                CV-tekst (PDF)
+              </span>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={onCvChange}
+                className="mt-2 block w-full text-sm text-zinc-500 file:mr-4 file:rounded-full file:border-0 file:bg-zinc-100 file:px-4 file:py-2 file:text-sm file:font-medium file:text-zinc-900 hover:file:bg-zinc-200"
+              />
+              {cvFileName && (
+                <p className="mt-2 text-sm text-zinc-600">{cvFileName}</p>
+              )}
+              {cvStatus && (
+                <p className="mt-2 text-sm text-emerald-700">{cvStatus}</p>
+              )}
+              {cvError && (
+                <p className="mt-2 text-sm text-red-500" role="alert">
+                  {cvError}
+                </p>
+              )}
+            </label>
+
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="submit"
+                disabled={saving}
+                className={buttonPrimary}
+              >
+                {saving ? "Lagrer…" : "Lagre profil"}
+              </button>
+              {saved && (
+                <p className="text-sm text-emerald-700">Profil lagret lokalt.</p>
+              )}
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

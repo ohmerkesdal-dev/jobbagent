@@ -1,25 +1,34 @@
+import type {
+  PipelineCard as PipelineCardType,
+  PipelineColumn as PipelineColumnType,
+} from "./types";
+
 export type PipelineKanal = "linkedin" | "epost" | "telefon";
 
 export type PipelineStatus = "sendt" | "svar" | "møte" | "avsluttet";
+
+export type PipelineColumn = PipelineColumnType;
+
+export type PipelineCard = PipelineCardType;
 
 export type PipelineHistorikkEntry = {
   status: PipelineStatus;
   dato: string;
 };
 
-export interface PipelineKontakt {
-  id: string;
+export type PipelineKontakt = Omit<PipelineCardType, "rolle" | "dato" | "kolonne"> & {
   navn: string;
   tittel: string;
-  selskap: string;
   kanal: PipelineKanal;
   status: PipelineStatus;
   melding: string;
   signal: string;
   sendtDato: string;
   oppfølgingDato: string;
-  notat: string;
+  historikk: PipelineHistorikkEntry[];
   svarDato?: string;
   møteDato?: string;
-  historikk?: PipelineHistorikkEntry[];
-}
+  rolle: string;
+  dato: string;
+  kolonne: PipelineColumn;
+};

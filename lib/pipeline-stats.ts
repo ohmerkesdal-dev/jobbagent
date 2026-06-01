@@ -1,40 +1,41 @@
-import type { PipelineKontakt, PipelineStatus } from "./pipeline-types";
+import type { PipelineCard, PipelineColumn } from "./pipeline-types";
 
-export function countByStatus(
-  list: PipelineKontakt[],
-): Record<PipelineStatus, number> {
-  const c = {
-    sendt: 0,
-    svar: 0,
-    møte: 0,
-    avsluttet: 0,
-  };
-  for (const k of list) {
-    c[k.status]++;
-  }
-  return c;
-}
-
-/** Kontakter med status sendt der oppfølgingstid er passert (ingen svar ennå). */
-export function getOppfølgingsKø(list: PipelineKontakt[]): PipelineKontakt[] {
-  const now = Date.now();
-  return list.filter(
-    (k) =>
-      k.status === "sendt" &&
-      new Date(k.oppfølgingDato).getTime() <= now,
+export function countByColumn(
+  list: PipelineCard[],
+): Record<PipelineColumn, number> {
+  return list.reduce(
+    (acc, next) => ({
+      ...acc,
+      [next.kolonne]: (acc[next.kolonne] ?? 0) + 1,
+    }),
+    {
+      Interessant: 0,
+      Kontaktet: 0,
+      Intervju: 0,
+      Tilbud: 0,
+      Avslått: 0,
+    } as Record<PipelineColumn, number>,
   );
 }
 
-export function countAktive(list: PipelineKontakt[]): number {
-  return list.filter((k) => k.status !== "avsluttet").length;
+export function getOppfølgingsKø(list: PipelineCard[]): PipelineCard[] {
+  return list.filter((k) => k.kolonne === "Kontaktet");
 }
 
-/**
- * Svarprosent: (svar + møte) / totalt × 100 (alle poster teller som «sendt ut»).
- */
-export function svarProsent(list: PipelineKontakt[]): number {
-  if (list.length === 0) return 0;
-  const num = list.filter((k) => k.status === "svar" || k.status === "møte")
-    .length;
-  return Math.round((num / list.length) * 100);
+export function countByStatus(list: { status: string }[]): Record<string, number> {
+  return list.reduce((acc, next) => ({
+    ...acc,
+    [next.status]: (acc[next.status] ?? 0) + 1,
+  }), {} as Record<string, number>);
+}
+
+export function countAktive(list: PipelineCard[]): number {
+  return list.filter((k) => k.kolonne !== "Avslått").length;
+}
+
+export function svarProsent(list: PipelineCard[]): number {
+  const open = list.filter((k) => k.kolonne !== "Avslått");
+  if (open.length === 0) return 0;
+  const responded = list.filter((k) => k.kolonne === "Kontaktet");
+  return Math.round((responded.length / open.length) * 100);
 }

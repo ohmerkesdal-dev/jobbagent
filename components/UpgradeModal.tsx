@@ -18,15 +18,15 @@ export function UpgradeModal({ open, onClose, stripeUrl }: UpgradeModalProps) {
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
         aria-label="Lukk"
       />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-[#111118] p-8 shadow-2xl">
-        <h2 id="upgrade-title" className="text-xl font-semibold text-zinc-100">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-2xl">
+        <h2 id="upgrade-title" className="text-xl font-semibold text-zinc-950">
           Du har brukt dine gratis analyser
         </h2>
-        <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+        <p className="mt-3 text-sm leading-relaxed text-zinc-600">
           Oppgrader til Jobbagent Pro for 99 kr/mnd og fortsett å analysere
           ubegrenset med signaler.
         </p>
@@ -34,7 +34,7 @@ export function UpgradeModal({ open, onClose, stripeUrl }: UpgradeModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-zinc-600 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
+            className="rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
           >
             Lukk
           </button>

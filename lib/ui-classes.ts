@@ -1,0 +1,10 @@
+export const buttonBase = "inline-flex items-center justify-center font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40";
+export const buttonPrimary = `${buttonBase} rounded-2xl bg-emerald-600 px-5 py-3 text-sm text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed`;
+export const buttonAccent = `${buttonBase} rounded-2xl bg-zinc-950 px-5 py-3 text-sm text-white hover:bg-zinc-800 disabled:opacity-50`;
+export const buttonOutline = `${buttonBase} rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-900 hover:bg-zinc-50 hover:border-zinc-300`;
+export const buttonText = `${buttonBase} rounded-lg px-4 py-2 text-sm text-zinc-500 hover:text-zinc-900`;
+export const buttonDestructive = `${buttonBase} rounded-lg text-red-600 hover:text-red-700`;
+export const buttonOverlay = `${buttonBase} modal-animate absolute inset-0 bg-black/50 backdrop-blur-sm`;
+export const formControlRounded3xl = "w-full rounded-3xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20";
+export const formControlRounded2xl = "w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20";
+export const buttonWarning = `${buttonBase} rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-800 hover:bg-amber-200 disabled:opacity-50`;

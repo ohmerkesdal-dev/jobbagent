@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  buttonOverlay,
+  buttonOutline,
+  buttonPrimary,
+  buttonText,
+  buttonWarning,
+} from "@/lib/ui-classes";
 import type {
   PipelineKanal,
   PipelineKontakt,
@@ -8,7 +15,7 @@ import type {
 } from "@/lib/pipeline-types";
 import {
   addHoursToIso,
-  loadPipeline,
+  loadPipelineContacts,
   newId,
   savePipeline,
   upsertKontakt,
@@ -24,12 +31,12 @@ const STATUS_STYLE: Record<
   PipelineStatus,
   { bg: string; text: string; label: string }
 > = {
-  sendt: { bg: "bg-[#f59e0b]", text: "text-[#fcd34d]", label: "Sendt" },
-  svar: { bg: "bg-[#3b82f6]", text: "text-[#93c5fd]", label: "Svar" },
-  møte: { bg: "bg-[#22c55e]", text: "text-[#86efac]", label: "Møte" },
+  sendt: { bg: "bg-amber-100", text: "text-amber-800", label: "Sendt" },
+  svar: { bg: "bg-blue-100", text: "text-blue-800", label: "Svar" },
+  møte: { bg: "bg-emerald-100", text: "text-emerald-800", label: "Møte" },
   avsluttet: {
-    bg: "bg-white/[0.1]",
-    text: "text-zinc-400",
+    bg: "bg-zinc-100",
+    text: "text-zinc-600",
     label: "Avsluttet",
   },
 };
@@ -63,7 +70,7 @@ function KanalIkon({ kanal }: { kanal: PipelineKanal }) {
   if (kanal === "epost") {
     return (
       <svg
-        className="h-4 w-4 text-zinc-400"
+        className="h-4 w-4 text-zinc-500"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -80,7 +87,7 @@ function KanalIkon({ kanal }: { kanal: PipelineKanal }) {
   }
   return (
     <svg
-      className="h-4 w-4 text-zinc-400"
+      className="h-4 w-4 text-zinc-500"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
@@ -104,7 +111,7 @@ export default function PipelinePage() {
   const [filterOppfølging, setFilterOppfølging] = useState(false);
 
   const refresh = useCallback(() => {
-    setList(loadPipeline());
+    setList(loadPipelineContacts());
   }, []);
 
   useEffect(() => {
@@ -132,21 +139,21 @@ export default function PipelinePage() {
     : undefined;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] pb-24 pt-6 text-zinc-100 sm:pt-10">
+    <div className="min-h-screen bg-[#f5f4f0] pb-24 pt-6 text-zinc-950 sm:pt-10">
       <div className="mx-auto max-w-4xl px-4 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
               Pipeline
             </h1>
-            <p className="mt-2 text-sm text-zinc-400">
+            <p className="mt-2 text-sm text-zinc-500">
               {aktive} aktive kontakter · {sp} % svar
             </p>
           </div>
           <button
             type="button"
             onClick={() => setManualOpen(true)}
-            className="rounded-xl bg-[#111118] px-4 py-2.5 text-sm font-medium text-zinc-100 ring-1 ring-white/10 transition hover:bg-white/5"
+            className={buttonOutline}
           >
             Legg til manuelt
           </button>
@@ -156,7 +163,7 @@ export default function PipelinePage() {
           <button
             type="button"
             onClick={() => setFilterOppfølging((f) => !f)}
-            className="modal-animate mt-6 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-100 transition hover:bg-amber-500/15"
+            className={buttonWarning}
           >
             ⏰ {oppfølgKø.length} kontakt
             {oppfølgKø.length === 1 ? "" : "er"} venter på oppfølging
@@ -175,12 +182,12 @@ export default function PipelinePage() {
           ).map(([label, val]) => (
             <div
               key={label}
-              className="rounded-xl border border-white/[0.08] bg-[#111118] px-4 py-3"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-3"
             >
               <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                 {label}
               </p>
-              <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-100">
+              <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-950">
                 {val}
               </p>
             </div>
@@ -191,7 +198,7 @@ export default function PipelinePage() {
           {!mounted ? (
             <p className="text-sm text-zinc-500">Laster…</p>
           ) : sorted.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-white/10 bg-[#111118]/50 px-6 py-12 text-center text-sm text-zinc-500">
+            <p className="rounded-xl border border-dashed border-zinc-200 bg-white px-6 py-12 text-center text-sm text-zinc-500">
               Ingen kontakter ennå. Analyser et signal og lagre kontaktpersonen i
               pipeline.
             </p>
@@ -202,7 +209,7 @@ export default function PipelinePage() {
                   <button
                     type="button"
                     onClick={() => setDetailId(k.id)}
-                    className="flex w-full items-start gap-3 rounded-xl border border-white/[0.06] bg-[#111118] p-4 text-left transition hover:border-white/10 sm:gap-4"
+                    className="flex w-full items-start gap-3 rounded-xl border border-zinc-200 bg-white p-4 text-left transition hover:border-zinc-300 sm:gap-4"
                   >
                     <div
                       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${STATUS_STYLE[k.status].bg} ${STATUS_STYLE[k.status].text}`}
@@ -211,7 +218,7 @@ export default function PipelinePage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-zinc-100">
+                        <span className="font-medium text-zinc-950">
                           {k.navn}
                         </span>
                         <span
@@ -220,7 +227,7 @@ export default function PipelinePage() {
                           {STATUS_STYLE[k.status].label}
                         </span>
                       </div>
-                      <p className="truncate text-sm text-zinc-400">
+                      <p className="truncate text-sm text-zinc-500">
                         {k.tittel}
                         {k.tittel && k.selskap ? " · " : ""}
                         {k.selskap}
@@ -233,7 +240,7 @@ export default function PipelinePage() {
                         <span>{dagerSiden(k.sendtDato)} d. siden sendt</span>
                         {k.status === "sendt" &&
                           Date.now() > new Date(k.oppfølgingDato).getTime() && (
-                            <span className="text-amber-400">
+                            <span className="text-amber-600">
                               Trenger oppfølging
                             </span>
                           )}
@@ -302,6 +309,9 @@ function ManualModal({
       oppfølgingDato: addHoursToIso(sendtIso, 48),
       notat: "",
       historikk: [{ status: "sendt", dato: sendtIso }],
+      rolle: tittel.trim(),
+      dato: sendtIso,
+      kolonne: "Interessant",
     };
     upsertKontakt(k);
     onSaved();
@@ -309,8 +319,8 @@ function ManualModal({
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="modal-animate max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#111118] p-6 shadow-2xl">
-        <h2 className="text-lg font-semibold text-zinc-50">
+      <div className="modal-animate max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-semibold text-zinc-950">
           Legg til kontakt
         </h2>
         <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
@@ -376,13 +386,13 @@ function ManualModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+              className={buttonText}
             >
               Avbryt
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+              className={buttonPrimary}
             >
               Lagre
             </button>
@@ -419,7 +429,7 @@ function ModalOverlay({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button
         type="button"
-        className="modal-animate absolute inset-0 bg-black/75 backdrop-blur-sm"
+        className={buttonOverlay}
         onClick={onClose}
         aria-label="Lukk"
       />
@@ -453,7 +463,7 @@ function DetailModal({
 
   function persistNotat(next: string) {
     setNotat(next);
-    const list = loadPipeline();
+    const list = loadPipelineContacts();
     const i = list.findIndex((k) => k.id === kontakt.id);
     if (i < 0) return;
     list[i] = { ...list[i], notat: next };
@@ -462,7 +472,7 @@ function DetailModal({
   }
 
   function setStatus(next: PipelineStatus) {
-    const list = loadPipeline();
+    const list = loadPipelineContacts();
     const i = list.findIndex((k) => k.id === kontakt.id);
     if (i < 0) return;
     const k = { ...list[i] };
@@ -509,11 +519,11 @@ function DetailModal({
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="modal-animate max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#111118] p-6 shadow-2xl">
-        <h2 className="text-lg font-semibold text-zinc-50">
+      <div className="modal-animate max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-semibold text-zinc-950">
           {kontakt.navn}
         </h2>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-zinc-500">
           {kontakt.tittel}
           {kontakt.tittel && kontakt.selskap ? " · " : ""}
           {kontakt.selskap}
@@ -535,7 +545,7 @@ function DetailModal({
           <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Signal
           </h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
+          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
             {kontakt.signal || "—"}
           </p>
         </section>
@@ -544,7 +554,7 @@ function DetailModal({
           <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Første melding
           </h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
+          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
             {kontakt.melding || "—"}
           </p>
         </section>
@@ -553,7 +563,7 @@ function DetailModal({
           <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Statushistorikk
           </h3>
-          <ul className="mt-2 space-y-1 text-sm text-zinc-400">
+          <ul className="mt-2 space-y-1 text-sm text-zinc-600">
             {(kontakt.historikk ?? []).map((h, i) => (
               <li key={`${h.dato}-${i}`}>
                 {STATUS_STYLE[h.status].label} ·{" "}
@@ -598,23 +608,23 @@ function DetailModal({
         </section>
 
         {past48 && (
-          <section className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-200/80">
+          <section className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-800">
               Forslag til oppfølgingsmelding
             </h3>
             <button
               type="button"
               onClick={genererOppfølging}
               disabled={loadingFollowup}
-              className="mt-2 rounded-lg bg-amber-500/20 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/30 disabled:opacity-50"
+              className={buttonWarning}
             >
               {loadingFollowup ? "Genererer…" : "Generer oppfølging"}
             </button>
             {followupErr && (
-              <p className="mt-2 text-sm text-red-400">{followupErr}</p>
+              <p className="mt-2 text-sm text-red-500">{followupErr}</p>
             )}
             {followup && (
-              <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-200">
+              <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-800">
                 {followup}
               </p>
             )}
@@ -624,7 +634,7 @@ function DetailModal({
         <button
           type="button"
           onClick={onClose}
-          className="mt-6 w-full rounded-lg border border-white/10 py-2 text-sm text-zinc-400 hover:bg-white/5"
+          className={buttonText}
         >
           Lukk
         </button>

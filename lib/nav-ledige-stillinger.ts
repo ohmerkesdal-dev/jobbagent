@@ -3,7 +3,7 @@ import type { ProfilScanInput, ScannerFunn } from "@/lib/scanner-types";
 import { navSøkeordVarianter } from "@/lib/scanner-queries";
 
 const DEFAULT_NAV_ADS_API =
-  "https://arbeidsplassen.nav.no/api/v2/ads";
+  "https://arbeidsplassen.nav.no/public-feed/api/v1/ads";
 const FEED_BASE = "https://pam-stilling-feed.nav.no";
 const USER_AGENT =
   "Mozilla/5.0 (compatible; Jobbagent/1.0; +https://jobbagent.no)";
@@ -104,14 +104,37 @@ function navAdTilFunn(
   };
 }
 
+const MUNICIPAL_CODES: Record<string, string> = {
+  oslo: "0301",
+  bergen: "4601",
+  trondheim: "5001",
+  stavanger: "1103",
+  tromsø: "5401",
+  kristiansand: "4204",
+  drammen: "3005",
+  fredrikstad: "3004",
+  sandnes: "1108",
+};
+
+function municipalCode(geography: string): string | null {
+  const g = geography.toLowerCase();
+  for (const [city, code] of Object.entries(MUNICIPAL_CODES)) {
+    if (g.includes(city)) return code;
+  }
+  return null;
+}
+
 async function fetchNavAdsApiJson(
   q: string,
   size: number,
   apiBase: string,
+  geography?: string,
 ): Promise<{ ok: true; data: unknown } | { ok: false }> {
   const url = new URL(apiBase);
   url.searchParams.set("size", String(size));
   url.searchParams.set("q", q);
+  const mCode = geography ? municipalCode(geography) : null;
+  if (mCode) url.searchParams.set("municipal", mCode);
 
   const res = await fetch(url.toString(), {
     headers: {
@@ -217,7 +240,7 @@ export async function fetchNavLedigeStillinger(
   const out: ScannerFunn[] = [];
 
   for (const qRaw of variants) {
-    const parsed = await fetchNavAdsApiJson(qRaw, size, apiBase);
+    const parsed = await fetchNavAdsApiJson(qRaw, size, apiBase, p.geography);
     if (!parsed.ok) continue;
 
     const list = extractAdObjects(parsed.data);
