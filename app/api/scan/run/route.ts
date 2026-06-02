@@ -335,41 +335,69 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── Del 3: Brave signal-søk for norske vekstsignaler ─────────────────────
+  // ── Del 3: Fire parallelle signalsøk ─────────────────────────────────────
   if (webEnabled) {
-    const signalQuery = `norsk selskap ${p.industry || "regnskap"} ansetter vekst funding 2026`;
-    await sleepMs(BRAVE_DELAY_MS);
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
+    const bransje = p.industry || "regnskap";
+    const geo = p.geography || "Oslo";
+
+    const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
+    const burl = (q: string) =>
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO`;
+
     try {
-      const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
-      const res = await fetch(
-        `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(signalQuery)}&count=5&country=NO`,
-        { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } },
-      );
-      if (res.ok) {
+      const [fundingRes, lederRes, vekstRes, bransjeRes] = await Promise.all([
+        fetch(burl(`${bransje} selskap funding investering Norge 2026`), { headers: braveHdr }),
+        fetch(burl(`${bransje} ny CEO CFO direktør ansetter Norge 2026`), { headers: braveHdr }),
+        fetch(burl(`${bransje} selskap vekst ekspanderer ansetter ${geo} 2026`), { headers: braveHdr }),
+        fetch(burl(`${bransje} bransje Norge nyheter markedsutvikling 2026`), { headers: braveHdr }),
+      ]);
+
+      const signalTyper: {
+        res: Response;
+        subtype: import("@/lib/scanner-types").SignalSubtype;
+        relevans: string;
+      }[] = [
+        { res: fundingRes, subtype: "funding", relevans: "Selskaper som henter kapital ansetter typisk innen 60–90 dager." },
+        { res: lederRes, subtype: "ny-ledelse", relevans: "Ny leder bygger alltid team i løpet av de første 60 dagene." },
+        { res: vekstRes, subtype: "vekst", relevans: "Vekstselskaper ansetter før de lyser ut stillinger offentlig." },
+        { res: bransjeRes, subtype: "bransje", relevans: "Markedsbevegelser påvirker ansettelser i din bransje." },
+      ];
+
+      for (const { res, subtype, relevans } of signalTyper) {
+        if (!res.ok) continue;
         const data = (await res.json()) as { web?: { results?: unknown[] } };
+        let antall = 0;
         for (const item of data.web?.results ?? []) {
+          if (antall >= 3) break;
           const it = item as Record<string, unknown>;
           const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
           const url = typeof it.url === "string" ? it.url.trim() : "";
-          if (!title || !url) continue;
+          if (!title || title.length < 10 || !url) continue;
+          if (url.includes("linkedin.com")) continue;
+          if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
           const desc = typeof it.description === "string"
             ? stripHtml(it.description).slice(0, 300)
             : "";
-          if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
           funn.push({
             id: makeId(url, title),
             signalType: "Nyhet",
             kategori: "signal",
+            signalSubtype: subtype,
+            relevansForKandidat: relevans,
             title,
             url,
+            location: geo || undefined,
             beskrivelse: desc || undefined,
-            kilde: "Brave Search (signal)",
+            kilde: `Brave Search (${subtype})`,
             funnetDato: new Date().toISOString(),
           });
+          antall++;
         }
       }
+      console.log("Signal-funn:", funn.filter((f) => f.kategori === "signal").length);
     } catch (e) {
-      warnings.push(`Signal-søk: ${e instanceof Error ? e.message : "feil"}`);
+      warnings.push(`Signalsøk: ${e instanceof Error ? e.message : "feil"}`);
     }
   }
 

@@ -6,11 +6,17 @@ export type ScannerSignalType =
 
 export type ScannerKategori = "stilling" | "signal" | "person" | "nyhet";
 
+export type SignalSubtype = "funding" | "ny-ledelse" | "vekst" | "bransje" | "ansetter";
+
 export type ScannerFunn = {
   id: string;
   signalType: ScannerSignalType;
   /** AI-klassifisert kategori for visning i seksjoner */
   kategori?: ScannerKategori;
+  /** Underkategori for signaler */
+  signalSubtype?: SignalSubtype;
+  /** Forklaring på hvorfor signalet er relevant for kandidaten */
+  relevansForKandidat?: string;
   title: string;
   company?: string;
   location?: string;

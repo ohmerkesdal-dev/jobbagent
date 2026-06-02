@@ -18,7 +18,7 @@ import {
   setSistScan,
 } from "@/lib/scanner-storage";
 import { addHoursToIso, newId, upsertKontakt } from "@/lib/pipeline-storage";
-import type { ScannerFunn, ScannerKategori } from "@/lib/scanner-types";
+import type { ScannerFunn, ScannerKategori, SignalSubtype } from "@/lib/scanner-types";
 import type { PipelineKontakt } from "@/lib/pipeline-types";
 import type { UserProfile } from "@/lib/types";
 
@@ -53,7 +53,32 @@ function sortFeed(funn: ScannerFunn[]): ScannerFunn[] {
   });
 }
 
-function KategoriIkon({ kategori }: { kategori: ScannerKategori }) {
+const SIGNAL_META: Record<SignalSubtype, { bg: string; tekst: string; label: string; timing: string }> = {
+  funding:     { bg: "bg-orange-100", tekst: "text-orange-600", label: "Funding", timing: "Handle innen 30 dager — høyest responsrate" },
+  "ny-ledelse":{ bg: "bg-violet-100", tekst: "text-violet-600", label: "Ny ledelse", timing: "Handle innen 60 dager — ny leder bygger team nå" },
+  vekst:       { bg: "bg-emerald-100", tekst: "text-emerald-600", label: "Vekst", timing: "Handle innen 2 uker — før de lyser ut stilling" },
+  bransje:     { bg: "bg-blue-100", tekst: "text-blue-600", label: "Bransjenyhet", timing: "Hold øye med utviklingen" },
+  ansetter:    { bg: "bg-emerald-100", tekst: "text-emerald-600", label: "Ansetter", timing: "Handle nå — stillingen lyses snart ut" },
+};
+
+function SignalIkon({ subtype }: { subtype?: SignalSubtype }) {
+  const meta = subtype ? SIGNAL_META[subtype] : SIGNAL_META.vekst;
+  const icons: Record<SignalSubtype, React.ReactNode> = {
+    funding: <svg className={`h-5 w-5 ${meta.tekst}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h5.5a2.5 2.5 0 0 1 0 5H8v-5z"/></svg>,
+    "ny-ledelse": <svg className={`h-5 w-5 ${meta.tekst}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>,
+    vekst: <svg className={`h-5 w-5 ${meta.tekst}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
+    bransje: <svg className={`h-5 w-5 ${meta.tekst}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M12 12v5M9 14h6"/></svg>,
+    ansetter: <svg className={`h-5 w-5 ${meta.tekst}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
+  };
+  return (
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${meta.bg}`}>
+      {icons[subtype ?? "vekst"]}
+    </div>
+  );
+}
+
+function KategoriIkon({ kategori, subtype }: { kategori: ScannerKategori; subtype?: SignalSubtype }) {
+  if (kategori === "signal" && subtype) return <SignalIkon subtype={subtype} />;
   if (kategori === "stilling") {
     return (
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
@@ -109,6 +134,8 @@ export default function FinnPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [sist, setSist] = useState<string | null>(null);
   const [webScanningDisabled, setWebScanningDisabled] = useState(false);
+  const [kontaktmeldinger, setKontaktmeldinger] = useState<Map<string, string>>(new Map());
+  const [generererKontakt, setGenerererKontakt] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setProfil(getStoredUserProfile());
@@ -213,6 +240,27 @@ export default function FinnPage() {
     setAddedIds((prev) => new Set([...prev, f.id]));
   }
 
+  async function genererKontaktmelding(f: ScannerFunn) {
+    const p = getStoredUserProfile();
+    if (!p) return;
+    setGenerererKontakt((prev) => new Set([...prev, f.id]));
+    try {
+      const pp = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("personProfile") ?? "{}") : {};
+      const res = await fetch("/api/signal/kontaktmelding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signal: f, userProfile: p, personProfile: pp }),
+      });
+      const data = (await res.json()) as { melding?: string };
+      if (data.melding) {
+        setKontaktmeldinger((prev) => new Map([...prev, [f.id, data.melding!]]));
+      }
+    } catch {}
+    finally {
+      setGenerererKontakt((prev) => { const s = new Set(prev); s.delete(f.id); return s; });
+    }
+  }
+
   function velgOgGa(f: ScannerFunn) {
     if (typeof window !== "undefined") {
       localStorage.setItem("valgtStilling", JSON.stringify({ id: f.id, title: f.title, company: f.company ?? "" }));
@@ -240,6 +288,16 @@ export default function FinnPage() {
     if (filter === "alle") return k !== "nyhet" || funn.filter(x => getKategori(x) !== "nyhet").length === 0;
     return k === filter;
   }));
+
+  const signalSammendrag = useMemo(() => {
+    const funding = funn.filter((f) => f.signalSubtype === "funding").length;
+    const nyLedelse = funn.filter((f) => f.signalSubtype === "ny-ledelse").length;
+    const vekst = funn.filter((f) => f.signalSubtype === "vekst").length;
+    if (funding > 0) return `${funding} selskaper i din bransje har hentet kapital nylig — de ansetter snart.`;
+    if (nyLedelse > 0) return `${nyLedelse} selskaper har fått ny ledelse — godt tidspunkt for direkte kontakt.`;
+    if (vekst > 0) return `${vekst} vekstsignaler i markedet ditt denne uken.`;
+    return null;
+  }, [funn]);
 
   const erHøySesong = useMemo(() => {
     const m = new Date().getMonth() + 1;
@@ -319,6 +377,16 @@ export default function FinnPage() {
             </div>
           ))}
         </div>
+
+        {/* Signal-sammendrag (Del 5) */}
+        {signalSammendrag && (
+          <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: "#F0FDF4", border: "0.5px solid rgba(29,158,117,0.25)" }}>
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-[#1D9E75]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+            </svg>
+            <p className="text-sm text-emerald-900">{signalSammendrag}</p>
+          </div>
+        )}
 
         {/* Karriere coach — høysesong */}
         {erHøySesong && <KarriereCoach kontekst="hoy-sesong" />}
