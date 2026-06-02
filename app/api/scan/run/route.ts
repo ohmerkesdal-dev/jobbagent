@@ -82,95 +82,57 @@ export async function POST(request: Request) {
     .replace("controller", "økonomi")
     .split(" ")[0] || "jobb";
 
-  const g = p.geography.toLowerCase();
-  const kommuneKode = g.includes("bergen") ? "4601"
-    : g.includes("trondheim") ? "5001"
-    : g.includes("stavanger") ? "1103"
-    : g.includes("kristiansand") ? "4204"
-    : g.includes("tromsø") || g.includes("tromso") ? "5401"
-    : "0301";
-
-  // ── Del 1: NAV Ledige stillinger via pam-stilling-feed ───────────────────
-  try {
-    const FEED_BASE = "https://pam-stilling-feed.nav.no";
-    const USER_AGENT = "Mozilla/5.0 (compatible; Jobbagent/1.0)";
-
-    const tokenRes = await fetch(`${FEED_BASE}/api/publicToken`, {
-      headers: { "User-Agent": USER_AGENT },
-      cache: "no-store",
-    });
-
-    if (tokenRes.ok) {
-      const tokenText = await tokenRes.text();
-      const tokenMatch = tokenText.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-      const token = tokenMatch?.[0];
-
-      if (token) {
-        const keywords = [
-          sokeord,
-          p.seeking.split(" ")[0].toLowerCase(),
-          "regnskapsfører",
-          "regnskapskonsulent",
-        ].map((k) => k.toLowerCase());
-
-        const seenNav = new Set<string>();
-        let feedPath = "/api/v1/feed";
-        const maxPages = 15;
-        const now = new Date().toISOString();
-
-        for (let page = 0; page < maxPages && funn.filter(f => f.kategori === "stilling").length < 20; page++) {
-          const feedUrl = feedPath.startsWith("http") ? feedPath : `${FEED_BASE}${feedPath}`;
-          const feedRes = await fetch(feedUrl, {
-            headers: { Accept: "application/json", Authorization: `Bearer ${token}`, "User-Agent": USER_AGENT },
-            cache: "no-store",
-          });
-          if (!feedRes.ok) break;
-
-          const data = (await feedRes.json()) as { items?: unknown[]; next_url?: string | null };
-          const items = (data.items ?? []) as Array<Record<string, unknown>>;
-
-          for (const item of items) {
-            const fe = item._feed_entry as Record<string, unknown> | undefined;
-            if (!fe || fe.status !== "ACTIVE") continue;
-            const title = ((fe.title ?? item.title ?? "") as string).trim();
-            const uuid = (fe.uuid as string | undefined)?.trim();
-            if (!title || !uuid || seenNav.has(uuid)) continue;
-
-            const blob = `${title} ${fe.businessName ?? ""} ${fe.municipal ?? ""}`.toLowerCase();
-            if (!keywords.some((k) => blob.includes(k))) continue;
-
-            seenNav.add(uuid);
-            const url = `https://arbeidsplassen.nav.no/stillinger/stilling/${uuid}`;
-            funn.push({
-              id: uuid,
-              signalType: "Utlyst stilling",
-              kategori: "stilling",
-              title,
-              company: (fe.businessName as string | undefined) || undefined,
-              location: (fe.municipal as string | undefined) || undefined,
-              url,
-              kilde: "NAV",
-              funnetDato: now,
-            });
-          }
-
-          const next = data.next_url;
-          if (!next) break;
-          feedPath = next;
-        }
-      }
-    }
-
-    const navCount = funn.filter((f) => f.kategori === "stilling").length;
-    console.log("NAV feed stillinger:", navCount);
-    if (navCount === 0) warnings.push("NAV: Ingen treff akkurat nå.");
-  } catch (e) {
-    console.error("NAV feil:", e);
-    warnings.push(`NAV stillinger: ${e instanceof Error ? e.message : "ukjent feil"}`);
-  }
-
   const webEnabled = isWebScanEnabled();
-  console.log("webEnabled:", webEnabled, "navStillinger:", funn.filter(f => f.kategori === "stilling").length);
+  console.log("webEnabled:", webEnabled);
+
+  // ── Del 1: Finn.no via Brave Search ──────────────────────────────────────
+  if (webEnabled) {
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
+    const geo = p.geography || "Oslo";
+    const søkTerm = p.seeking.split(" ")[0] || sokeord;
+
+    const finnUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
+      `site:finn.no/job ${søkTerm} ${geo}`
+    )}&count=10&country=NO&freshness=pm`;
+
+    try {
+      const finnRes = await fetch(finnUrl, {
+        headers: { Accept: "application/json", "X-Subscription-Token": braveKey },
+        cache: "no-store",
+      });
+
+      console.log("Finn.no Brave status:", finnRes.status);
+      if (finnRes.ok) {
+        const finnData = (await finnRes.json()) as { web?: { results?: unknown[] } };
+        for (const item of finnData.web?.results ?? []) {
+          const it = item as Record<string, unknown>;
+          const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
+          const desc = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
+          if (!title || title.length < 10) continue;
+          const url = typeof it.url === "string" ? it.url.trim() : "";
+          if (!url) continue;
+          funn.push({
+            id: makeId(url, title),
+            signalType: "Utlyst stilling",
+            kategori: "stilling",
+            title,
+            url,
+            location: geo || undefined,
+            beskrivelse: desc || undefined,
+            kilde: "Finn.no",
+            kildeNavn: "Finn.no",
+            funnetDato: new Date().toISOString(),
+          });
+        }
+        console.log("Finn.no stillinger:", funn.filter((f) => f.kildeNavn === "Finn.no").length);
+      } else {
+        warnings.push("Finn.no: Ingen treff akkurat nå.");
+      }
+    } catch (e) {
+      console.error("Finn.no feil:", e);
+      warnings.push(`Finn.no: ${e instanceof Error ? e.message : "ukjent feil"}`);
+    }
+  }
 
   // ── Del 2: LinkedIn + multi-kilde parallell søk ──────────────────────────
   if (webEnabled) {
@@ -178,12 +140,15 @@ export async function POST(request: Request) {
     const geo = p.geography || "Oslo";
     const søkTerm = p.seeking.split(" ")[0] || sokeord;
 
+    const iÅr = new Date().getFullYear();
+    const forrigeÅr = iÅr - 1;
+
     const linkedinSøk = [
-      `site:linkedin.com/jobs/view "${søkTerm}" "${geo}"`,
-      `site:linkedin.com/jobs/view "${søkTerm}" Norway`,
-      `"${søkTerm}" "vi søker" OR "ledig stilling" site:linkedin.com`,
-      `"${søkTerm}" site:finn.no/job`,
-      `"${søkTerm}" site:webcruiter.com`,
+      `site:linkedin.com/jobs/view "${søkTerm}" "${geo}" ${iÅr} OR ${forrigeÅr}`,
+      `site:linkedin.com/jobs/view "${søkTerm}" Norway ${iÅr} OR ${forrigeÅr}`,
+      `"${søkTerm}" "vi søker" OR "ledig stilling" site:linkedin.com ${iÅr}`,
+      `"${søkTerm}" site:finn.no/job ${iÅr} OR ${forrigeÅr}`,
+      `"${søkTerm}" site:webcruiter.com ${iÅr} OR ${forrigeÅr}`,
     ];
 
     const selskapsSøk = selskaper.slice(0, 5).map((navn) =>
@@ -194,7 +159,7 @@ export async function POST(request: Request) {
 
     const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
     const burl = (q: string) =>
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO`;
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
 
     const søkResultater = await Promise.all(
       alleSøk.map((query) =>
@@ -221,6 +186,9 @@ export async function POST(request: Request) {
         const desc = typeof it.description === "string"
           ? stripHtml(it.description).slice(0, 300)
           : "";
+
+        const gamleÅrstall = ["2022", "2021", "2020", "2019", "2018", "2017"];
+        if (gamleÅrstall.some((år) => (title + " " + desc).includes(år))) continue;
 
         const tekst = `${title} ${desc}`.toLowerCase();
         const signalOrd = ["funding", "investering", "vekst", "ekspanderer", "ny ceo", "ny cfo", "millioner"];
@@ -258,7 +226,7 @@ export async function POST(request: Request) {
 
     const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
     const burl = (q: string) =>
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO`;
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
 
     try {
       const [fundingRes, lederRes, vekstRes, bransjeRes] = await Promise.all([
@@ -316,9 +284,9 @@ export async function POST(request: Request) {
     }
   }
 
-  console.log("NAV:", funn.filter((f) => f.kilde === "NAV").length);
-  console.log("LinkedIn:", funn.filter((f) => f.kildeNavn === "LinkedIn").length);
   console.log("Finn.no:", funn.filter((f) => f.kildeNavn === "Finn.no").length);
+  console.log("LinkedIn:", funn.filter((f) => f.kildeNavn === "LinkedIn").length);
+  console.log("Webcruiter:", funn.filter((f) => f.kildeNavn === "Webcruiter").length);
   console.log("Totalt:", funn.length);
 
   const seen = new Set<string>();

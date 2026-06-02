@@ -465,8 +465,14 @@ export default function FinnPage() {
                     ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">{d} dager igjen</span>
                     : <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Frist: {new Date(f.deadline!).toLocaleDateString("nb-NO")}</span>;
 
+              const kildeLabel = f.kildeNavn ||
+                (f.kilde === "NAV" ? "NAV" :
+                 f.url.includes("finn.no") ? "Finn.no" :
+                 f.url.includes("webcruiter") ? "Webcruiter" :
+                 f.url.includes("linkedin.com") ? "LinkedIn" : "Stilling");
+
               const badge =
-                kat === "stilling" ? { label: "NAV-stilling", cls: "bg-emerald-50 text-emerald-700" }
+                kat === "stilling" ? { label: kildeLabel, cls: "bg-emerald-50 text-emerald-700" }
                 : kat === "signal" ? { label: "Vekstsignal", cls: "bg-orange-50 text-orange-700" }
                 : kat === "person" ? { label: "Nøkkelperson", cls: "bg-violet-50 text-violet-700" }
                 : { label: "Nyhet", cls: "bg-zinc-100 text-zinc-600" };
