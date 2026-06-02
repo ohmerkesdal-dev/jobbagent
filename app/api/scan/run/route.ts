@@ -455,6 +455,71 @@ export async function POST(request: Request) {
     }
   }
 
+  // ── Del 2b: LinkedIn-innlegg og bedriftskarrieresider ───────────────────────
+  // Fanger jobber som aldri når NAV/Finn — direkte fra bedriftskontoer og byråer
+  if (webEnabled) {
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
+    const bransje = p.industry || sokeord;
+
+    const linkedinBedriftsSøk = [
+      `site:linkedin.com/posts "${søkTerm}" "søker" OR "ledig" OR "vi ansetter" 2026`,
+      `site:linkedin.com "${bransje}" "stilling" OR "rolle" "${geo}" 2026`,
+      `"careers." OR "jobs." "${søkTerm}" "${geo}" 2026 -site:finn.no -site:nav.no`,
+    ];
+
+    const braveHdr2b = { Accept: "application/json", "X-Subscription-Token": braveKey };
+    const burl2b = (q: string) =>
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
+
+    const bedriftsResultater = await Promise.all(
+      linkedinBedriftsSøk.map((q) =>
+        fetch(burl2b(q), { headers: braveHdr2b, cache: "no-store" })
+          .then((r) => (r.ok ? (r.json() as Promise<{ web?: { results?: unknown[] } }>) : null))
+          .catch(() => null)
+      )
+    );
+
+    const JOBB_ORD = ["søker", "ledig", "ansetter", "stilling", "rolle", "hiring", "vi ser etter", "utlyser"];
+
+    for (const data of bedriftsResultater) {
+      if (!data) continue;
+      for (const item of (data.web?.results ?? []).slice(0, 3)) {
+        const it = item as Record<string, unknown>;
+        const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
+        const url   = typeof it.url   === "string" ? it.url.trim() : "";
+        const desc  = typeof it.description === "string" ? stripHtml(it.description).slice(0, 200) : "";
+
+        if (!title || title.length < 10 || !url) continue;
+        if (url.includes("linkedin.com/in/")) continue;           // profil-sider
+        if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
+
+        // Krev jobb-relatert innhold i tittel eller beskrivelse
+        const tekst = (title + " " + desc).toLowerCase();
+        if (!JOBB_ORD.some((o) => tekst.includes(o))) continue;
+
+        const erLinkedIn = url.includes("linkedin.com");
+        const erCareer   = url.includes("careers.") || url.includes("/careers") || url.includes("jobs.");
+        const company    = extractCompany(title, url);
+        const kildeNavn  = erLinkedIn ? "LinkedIn" : erCareer ? "Karriereside" : "Nett";
+
+        funn.push({
+          id: makeId(url, title),
+          signalType: erLinkedIn ? "LinkedIn" : "Utlyst stilling",
+          kategori: "stilling",
+          title,
+          company: company || undefined,
+          url,
+          location: geo,
+          beskrivelse: desc || undefined,
+          kilde: kildeNavn,
+          kildeNavn,
+          funnetDato: new Date().toISOString(),
+        });
+      }
+    }
+    console.log("LinkedIn-innlegg/karrieresider:", funn.filter((f) => f.kildeNavn === "Karriereside" || (f.kildeNavn === "LinkedIn" && f.kilde === "LinkedIn")).length);
+  }
+
   // ── Del 3: Fire parallelle signalsøk ─────────────────────────────────────
   if (webEnabled) {
     const braveKey = process.env.BRAVE_SEARCH_API_KEY!;

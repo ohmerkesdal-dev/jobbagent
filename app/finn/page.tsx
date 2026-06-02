@@ -35,12 +35,14 @@ const SIGNAL_META: Record<SignalSubtype, { label: string; timing: string; cls: s
 const SIGNAL_SUBTYPES_PÅ_KORT: SignalSubtype[] = ["funding", "ny-ledelse", "vekst", "ansetter"];
 
 function KildePill({ kildeNavn }: { kildeNavn?: string }) {
-  if (!kildeNavn || kildeNavn === "Nett") return null;
+  if (!kildeNavn || kildeNavn === "Nett" || kildeNavn === "Jobb") return null;
   const style: Record<string, React.CSSProperties> = {
-    LinkedIn:   { background: "#E6F1FB", color: "#0C447C" },
-    "Finn.no":  { background: "#FAEEDA", color: "#633806" },
-    Webcruiter: { background: "#EEEDFE", color: "#3C3489" },
-    NAV:        { background: "#E1F5EE", color: "#085041" },
+    LinkedIn:      { background: "#E6F1FB", color: "#0C447C" },
+    "Finn.no":     { background: "#FAEEDA", color: "#633806" },
+    Webcruiter:    { background: "#EEEDFE", color: "#3C3489" },
+    NAV:           { background: "#E1F5EE", color: "#085041" },
+    Karriereside:  { background: "#FDF4FF", color: "#7C3AED" },
+    "Google Jobs": { background: "#F0F7FF", color: "#1D4ED8" },
   };
   return (
     <span
