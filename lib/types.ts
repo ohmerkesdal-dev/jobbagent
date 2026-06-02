@@ -1,3 +1,18 @@
+import type { ScannerFunn } from "./scanner-types";
+
+export type SelskapKort = {
+  id: string;
+  navn: string;
+  bransje?: string;
+  lokasjon?: string;
+  erFulgt: boolean;
+  stillinger: ScannerFunn[];
+  signaler: ScannerFunn[];
+  personer: ScannerFunn[];
+  matchScore?: number;
+  høyestFrist?: string;
+};
+
 export type ScanResult = {
   id: string;
   source: "nav" | "brave" | "linkedin";
