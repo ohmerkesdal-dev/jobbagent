@@ -132,6 +132,92 @@ export async function POST(request: Request) {
   const webEnabled = isWebScanEnabled();
   console.log("webEnabled:", webEnabled);
 
+  // ── Del 0: NAV pam-stilling-feed (åpen, gratis, live data) ──────────────
+  try {
+    const FEED_BASE = "https://pam-stilling-feed.nav.no";
+    const USER_AGENT = "Mozilla/5.0 (compatible; Jobbagent/1.0)";
+
+    const tokenRes = await fetch(`${FEED_BASE}/api/publicToken`, {
+      headers: { "User-Agent": USER_AGENT },
+      cache: "no-store",
+    });
+
+    if (tokenRes.ok) {
+      const tokenText = await tokenRes.text();
+      const tokenMatch = tokenText.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+      const token = tokenMatch?.[0];
+
+      if (token) {
+        // Brede søkeord fra profil
+        const søkSplit = p.seeking.toLowerCase().split(/\s+/);
+        const keywords = [...new Set([sokeord, søkSplit[0], søkSplit[søkSplit.length - 1]])].filter(Boolean);
+
+        const seenNav = new Set<string>();
+        let feedPath = "/api/v1/feed";
+        const maxPages = 6;
+
+        for (let page = 0; page < maxPages && funn.filter(f => f.kategori === "stilling" && f.kildeNavn === "NAV").length < 12; page++) {
+          const feedUrl = feedPath.startsWith("http") ? feedPath : `${FEED_BASE}${feedPath}`;
+          const feedRes = await fetch(feedUrl, {
+            headers: { Accept: "application/json", Authorization: `Bearer ${token}`, "User-Agent": USER_AGENT },
+            cache: "no-store",
+          });
+          if (!feedRes.ok) { console.log("NAV feed status:", feedRes.status); break; }
+
+          const data = (await feedRes.json()) as { items?: unknown[]; next_url?: string | null };
+          const items = (data.items ?? []) as Array<Record<string, unknown>>;
+
+          // Logg struktur første gang for debugging
+          if (page === 0 && items[0]) console.log("NAV item-nøkler:", Object.keys(items[0]));
+
+          for (const item of items) {
+            // Prøv begge mulige strukturer (gammel _feed_entry og ny flat)
+            const fe = (item._feed_entry ?? item) as Record<string, unknown>;
+            if (fe.status && fe.status !== "ACTIVE") continue;
+
+            const title = String(fe.jobtitle ?? fe.title ?? item.title ?? "").trim();
+            const uuid  = String(fe.uuid ?? item.uuid ?? "").trim();
+            if (!title || !uuid || seenNav.has(uuid)) continue;
+
+            const companyName = String(
+              (fe.employer as Record<string, unknown> | undefined)?.name ??
+              fe.businessName ?? item.businessName ?? ""
+            );
+            const municipal = String(
+              (fe.workLocations as Array<{municipal?: string}> | undefined)?.[0]?.municipal ??
+              fe.municipal ?? item.municipal ?? ""
+            );
+
+            const blob = `${title} ${companyName} ${municipal}`.toLowerCase();
+            if (!keywords.some(k => blob.includes(k))) continue;
+
+            seenNav.add(uuid);
+            funn.push({
+              id: uuid,
+              signalType: "Utlyst stilling",
+              kategori: "stilling",
+              title,
+              company: companyName || undefined,
+              location: municipal || undefined,
+              url: `https://arbeidsplassen.nav.no/stillinger/stilling/${uuid}`,
+              kilde: "NAV",
+              kildeNavn: "NAV",
+              funnetDato: new Date().toISOString(),
+            });
+          }
+
+          const next = data.next_url;
+          if (!next) break;
+          feedPath = next;
+        }
+        console.log("NAV stillinger:", funn.filter(f => f.kildeNavn === "NAV").length);
+      }
+    }
+  } catch (e) {
+    console.error("NAV feil:", e);
+    warnings.push(`NAV: ${e instanceof Error ? e.message : "feil"}`);
+  }
+
   // ── Del 1: Presisjons-stillingssøk (site:finn.no/job, NAV, Webcruiter) ──────
   if (webEnabled) {
     const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
@@ -381,6 +467,7 @@ export async function POST(request: Request) {
     }
   }
 
+  console.log("NAV:", funn.filter((f) => f.kildeNavn === "NAV").length);
   console.log("Finn.no:", funn.filter((f) => f.kildeNavn === "Finn.no").length);
   console.log("LinkedIn:", funn.filter((f) => f.kildeNavn === "LinkedIn").length);
   console.log("Webcruiter:", funn.filter((f) => f.kildeNavn === "Webcruiter").length);
