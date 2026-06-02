@@ -32,6 +32,7 @@ const GYLDIGE_STILLING_DOMENER = [
   "webcruiter.com",
   "jobbsafari.no",
   "karriere.no",
+  "linkedin.com/jobs/view",
 ];
 
 const NYHETSDOMENER = [
@@ -41,6 +42,15 @@ const NYHETSDOMENER = [
 
 function erGyldigStillingURL(url: string): boolean {
   return GYLDIGE_STILLING_DOMENER.some((d) => url.includes(d));
+}
+
+/** Returnerer true for Finn/NAV/LinkedIn søkeoversikter — ikke individuelle annonser */
+function erSøkeside(url: string): boolean {
+  if (url.includes("finn.no") && url.toLowerCase().includes("/search")) return true;
+  if (/finn\.no\/job\/?\?/.test(url) || /finn\.no\/job\/?$/.test(url)) return true;
+  if (url.includes("arbeidsplassen.nav.no/stillinger") && !url.includes("/stilling/")) return true;
+  if (url.includes("linkedin.com/jobs") && !url.includes("/jobs/view/")) return true;
+  return false;
 }
 
 function trekkUtFrist(desc: string): string | undefined {
@@ -226,9 +236,11 @@ export async function POST(request: Request) {
     const iÅr = new Date().getFullYear();
 
     const stillingsSøk = [
-      `site:finn.no/job ${søkTerm} ${geo} ${iÅr}`,
-      `site:finn.no/job ${søkTerm}`,
-      `site:arbeidsplassen.nav.no/stillinger ${søkTerm}`,
+      `site:finn.no/job "${søkTerm}" "${geo}" ${iÅr}`,
+      `site:finn.no/job "${søkTerm}"`,
+      `site:arbeidsplassen.nav.no/stillinger "${søkTerm}"`,
+      `site:linkedin.com/jobs/view "${søkTerm}" "${geo}"`,
+      `site:linkedin.com/jobs/view "${søkTerm}" Norway`,
       `"søknadsfrist" "${søkTerm}" "${geo}" ${iÅr} -site:youtube.com -site:facebook.com`,
     ];
 
@@ -254,17 +266,15 @@ export async function POST(request: Request) {
 
         if (!title || title.length < 10 || !url) continue;
         if (!erGyldigStillingURL(url)) continue;
-        // Finn: kun individuelle jobbannonser (krever finnkode)
-        if (url.includes("finn.no") && !url.includes("finnkode=")) continue;
-        // NAV: kun individuelle stillinger (krever /stilling/ UUID-path)
-        if (url.includes("arbeidsplassen.nav.no") && !url.includes("/stilling/")) continue;
+        if (erSøkeside(url)) continue;
 
         const frist    = trekkUtFrist(desc);
         const company  = extractCompany(title, url);
         const erFinn   = url.includes("finn.no");
         const erNAV    = url.includes("arbeidsplassen.nav.no");
         const erWC     = url.includes("webcruiter.com");
-        const kildeNavn = erFinn ? "Finn.no" : erNAV ? "NAV" : erWC ? "Webcruiter" : "Karriere";
+        const erLI     = url.includes("linkedin.com");
+        const kildeNavn = erFinn ? "Finn.no" : erNAV ? "NAV" : erWC ? "Webcruiter" : erLI ? "LinkedIn" : "Karriere";
 
         funn.push({
           id: makeId(url, title),
@@ -353,12 +363,9 @@ export async function POST(request: Request) {
             : "Nyhet";
         const kategori: ScannerKategori = erSignal ? "signal" : "stilling";
 
-        // Forkast stillinger som ikke er fra godkjente stillingssider
+        // Forkast stillinger fra ugyldig kilde eller søkesider
         if (kategori === "stilling" && !erGyldigStillingURL(url)) continue;
-        // Finn: kun individuelle annonser
-        if (url.includes("finn.no") && !url.includes("finnkode=")) continue;
-        // NAV: kun individuelle stillinger
-        if (url.includes("arbeidsplassen.nav.no") && !url.includes("/stilling/")) continue;
+        if (erSøkeside(url)) continue;
 
         const company = kategori === "stilling" ? extractCompany(title, url) : undefined;
 
