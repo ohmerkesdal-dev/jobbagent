@@ -124,9 +124,11 @@ export async function POST(request: Request) {
         for (const item of (data.web?.results ?? [])) {
           const it      = item as Record<string, unknown>;
           const itemUrl = typeof it.url === "string" ? it.url.trim() : "";
-          if (!itemUrl.includes("finn.no/job")) continue;
+          if (!/finn\.no\/job\/(ad\/)?\d+/.test(itemUrl)) continue;
           const title   = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
           if (!title || title.length < 10) continue;
+          const ugyldigeTitler = ["alle har rett","godt liv","søk uten cv","lignende annonser","finn jobb"];
+          if (ugyldigeTitler.some(u => title.toLowerCase().includes(u))) continue;
           const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
           const tekst   = `${title} ${desc}`.toLowerCase();
           if (!relevanteSøkeord.some(ord => tekst.includes(ord))) continue;
