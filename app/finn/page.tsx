@@ -24,15 +24,16 @@ import { saveSelskaper } from "@/lib/scanner-storage";
 type Filter = "alle" | "har-stilling" | "har-signal" | "fulgt";
 
 const SIGNAL_META: Record<SignalSubtype, { label: string; timing: string; cls: string }> = {
-  funding:       { label: "Funding",      timing: "Ansetter typisk innen 60 dager.",        cls: "bg-orange-100 text-orange-700"  },
-  "ny-ledelse":  { label: "Ny ledelse",   timing: "Ny leder bygger team nå.",               cls: "bg-violet-100 text-violet-700"  },
-  vekst:         { label: "Vekst",        timing: "Handle innen 2 uker.",                   cls: "bg-emerald-100 text-emerald-700"},
-  bransjenyhet:  { label: "Bransjenyhet", timing: "Hold øye med markedsutviklingen.",       cls: "bg-blue-100 text-blue-700"      },
-  ansetter:      { label: "Ansetter",     timing: "Handle nå — stillingen lyses snart ut.", cls: "bg-emerald-100 text-emerald-700"},
+  funding:       { label: "Funding",          timing: "Ansetter typisk innen 60 dager.",           cls: "bg-orange-100 text-orange-700"  },
+  "ny-ledelse":  { label: "Ny ledelse",       timing: "Ny leder bygger team nå.",                  cls: "bg-violet-100 text-violet-700"  },
+  vekst:         { label: "Vekst",            timing: "Handle innen 2 uker.",                      cls: "bg-emerald-100 text-emerald-700"},
+  bransjenyhet:  { label: "Bransjenyhet",     timing: "Hold øye med markedsutviklingen.",          cls: "bg-blue-100 text-blue-700"      },
+  ansetter:      { label: "Ansetter",         timing: "Handle nå — stillingen lyses snart ut.",    cls: "bg-emerald-100 text-emerald-700"},
+  historisk:     { label: "Historisk signal", timing: "Ta kontakt proaktivt — behovet kan bestå.", cls: "bg-zinc-100 text-zinc-600"      },
 };
 
 // Subtypes som vises i signal-kolonnen på selskapskort (ikke bransjenyhet)
-const SIGNAL_SUBTYPES_PÅ_KORT: SignalSubtype[] = ["funding", "ny-ledelse", "vekst", "ansetter"];
+const SIGNAL_SUBTYPES_PÅ_KORT: SignalSubtype[] = ["funding", "ny-ledelse", "vekst", "ansetter", "historisk"];
 
 function KildePill({ kildeNavn }: { kildeNavn?: string }) {
   if (!kildeNavn || kildeNavn === "Nett" || kildeNavn === "Jobb") return null;
@@ -470,13 +471,13 @@ export default function FinnPage() {
                             </p>
                             <div className="mt-1 flex flex-wrap gap-1">
                               <KildePill kildeNavn={s.kildeNavn} />
-                              {d !== null && (
+                              {d !== null && d > 0 && (
                                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
-                                  d <= 0 ? "bg-red-100 text-red-700"
-                                  : d <= 3 ? "bg-red-50 text-red-600"
-                                  : "bg-zinc-100 text-zinc-500"
+                                  d <= 3 ? "bg-red-100 text-red-700"
+                                  : d <= 7 ? "bg-amber-100 text-amber-700"
+                                  : "bg-emerald-50 text-emerald-700"
                                 }`}>
-                                  {d <= 0 ? "Utløpt" : `${d}d igjen`}
+                                  {d === 1 ? "Siste dag!" : `${d}d igjen`}
                                 </span>
                               )}
                             </div>
@@ -591,16 +592,22 @@ export default function FinnPage() {
               <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{ugrupperteStillinger.length}</span>
             </div>
             <div className="flex flex-col gap-3">
-              {ugrupperteStillinger.map((f) => {
+              {ugrupperteStillinger
+                .filter(f => !f.deadline || new Date(f.deadline).getTime() > Date.now())
+                .map((f) => {
                 const d = f.deadline ? Math.ceil((new Date(f.deadline).getTime() - Date.now()) / 86_400_000) : null;
                 return (
                   <div key={f.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5 mb-1">
                         <KildePill kildeNavn={f.kildeNavn} />
-                        {d !== null && (
-                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${d <= 3 ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-500"}`}>
-                            {d <= 0 ? "Utløpt" : `${d}d igjen`}
+                        {d !== null && d > 0 && (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                            d <= 3 ? "bg-red-100 text-red-700"
+                            : d <= 7 ? "bg-amber-100 text-amber-700"
+                            : "bg-emerald-50 text-emerald-700"
+                          }`}>
+                            {d === 1 ? "Siste dag!" : `${d}d igjen`}
                           </span>
                         )}
                       </div>

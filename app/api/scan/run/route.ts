@@ -52,50 +52,82 @@ export async function POST(request: Request) {
   const kKode       = kommuneKode(geografi);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // DEL 1 — NAV stillinger/api/search (åpent, Elasticsearch-format)
+  // DEL 1 — NAV parallelle søk (åpent, Elasticsearch-format)
   // ──────────────────────────────────────────────────────────────────────────
+  const extraNavKw = sokeord.includes("regnskap") ? ["controller","økonomisjef","CFO"]
+    : sokeord.includes("hr")    ? ["rekruttering","people manager"]
+    : sokeord.includes("salg")  ? ["salgssjef","business development"]
+    : sokeord.includes("it")    ? ["systemutvikler","senior developer"]
+    : [];
+  const navKeywords = [sokeord, ...extraNavKw.slice(0, 2)];
+
   try {
-    const navUrl = `https://arbeidsplassen.nav.no/stillinger/api/search?q=${encodeURIComponent(sokeord)}&size=20&municipal=${kKode}`;
-    const navRes = await fetch(navUrl, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (navRes.ok) {
-      const navData = (await navRes.json()) as { hits?: { hits?: unknown[] } };
-      const iDag    = new Date();
-      for (const hit of (navData.hits?.hits ?? [])) {
-        const h     = hit as Record<string, unknown>;
-        const s     = (h._source ?? h) as Record<string, unknown>;
-        const uuid  = String(s.uuid ?? h._id ?? "").trim();
-        const title = String(s.title ?? "").trim();
-        if (!uuid || !title) continue;
-        if (s.expires && new Date(s.expires as string) < iDag) continue;
-        const locList = (s.locationList as Array<Record<string,unknown>> | undefined) ?? [];
-        const municipal = locList[0]?.municipal ?? locList[0]?.city ?? "";
-        funn.push({
-          id:          uuid,
-          signalType:  "Utlyst stilling",
-          kategori:    "stilling",
-          title,
-          company:     String(s.businessName ?? "") || undefined,
-          location:    String(municipal) || geografi,
-          url:         `https://arbeidsplassen.nav.no/stillinger/stilling/${uuid}`,
-          beskrivelse: stripHtml(String(s.description ?? "")).slice(0, 300) || undefined,
-          dato:        String(s.published ?? "") || undefined,
-          deadline:    String(s.expires ?? "") || undefined,
-          kilde:       "NAV",
-          kildeNavn:   "NAV",
-          funnetDato:  now,
-        });
+    const navHitsAll = await Promise.all(navKeywords.map(async (kw) => {
+      const url = `https://arbeidsplassen.nav.no/stillinger/api/search?q=${encodeURIComponent(kw)}&size=15&municipal=${kKode}`;
+      const res = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+      if (!res.ok) { warnings.push(`NAV ${kw}: ${res.status}`); return []; }
+      const data = (await res.json()) as { hits?: { hits?: unknown[] } };
+      return data.hits?.hits ?? [];
+    }));
+
+    const iDag            = new Date();
+    const historiskeBatch: ScannerFunn[] = [];
+
+    for (const hit of navHitsAll.flat()) {
+      const h     = hit as Record<string, unknown>;
+      const s     = (h._source ?? h) as Record<string, unknown>;
+      const uuid  = String(s.uuid ?? h._id ?? "").trim();
+      const title = String(s.title ?? "").trim();
+      if (!uuid || !title) continue;
+      const locList   = (s.locationList as Array<Record<string,unknown>> | undefined) ?? [];
+      const municipal = String(locList[0]?.municipal ?? locList[0]?.city ?? "") || geografi;
+      const company   = String(s.businessName ?? "") || undefined;
+      const navUrl    = `https://arbeidsplassen.nav.no/stillinger/stilling/${uuid}`;
+
+      if (s.expires && new Date(s.expires as string) < iDag) {
+        const dagerSiden = Math.ceil((Date.now() - new Date(s.expires as string).getTime()) / 86400000);
+        if (dagerSiden > 0 && dagerSiden < 180) {
+          historiskeBatch.push({
+            id:                  randomUUID(),
+            signalType:          "Nyhet",
+            kategori:            "signal",
+            signalSubtype:       "historisk",
+            relevansForKandidat: "Bedriften ansetter periodisk i denne rollen — kan være verdt å ta kontakt proaktivt.",
+            title:               `${company ?? title} — "${title}" for ${dagerSiden} dager siden`,
+            company,
+            location:            municipal,
+            url:                 navUrl,
+            beskrivelse:         `Stillingen utløp for ${dagerSiden} dager siden. Behovet kan fortsatt være der.`,
+            kilde:               "Historisk signal",
+            funnetDato:          now,
+          });
+        }
+        continue;
       }
-    } else {
-      const txt = await navRes.text().catch(() => "");
-      warnings.push(`NAV: ${navRes.status} ${txt.slice(0, 100)}`);
+
+      funn.push({
+        id:          uuid,
+        signalType:  "Utlyst stilling",
+        kategori:    "stilling",
+        title,
+        company,
+        location:    municipal,
+        url:         navUrl,
+        beskrivelse: stripHtml(String(s.description ?? "")).slice(0, 300) || undefined,
+        dato:        String(s.published ?? "") || undefined,
+        deadline:    String(s.expires ?? "") || undefined,
+        kilde:       "NAV",
+        kildeNavn:   "NAV",
+        funnetDato:  now,
+      });
     }
+    // Legg til inntil 3 historiske signaler
+    funn.push(...historiskeBatch.slice(0, 3));
   } catch (e) {
     warnings.push(`NAV: ${e instanceof Error ? e.message : "feil"}`);
   }
   console.log("NAV:", funn.filter(f => f.kildeNavn === "NAV").length, "stillinger");
+  console.log("Historiske signaler:", funn.filter(f => f.signalSubtype === "historisk").length);
 
   // Søkeordutvidelse — brukes for relevansfiltrering i DEL 2 og DEL 3
   const relevanteSøkeord = [
@@ -158,9 +190,9 @@ export async function POST(request: Request) {
   if (webEnabled) {
     const hdr          = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
     const linkedinSøk  = [
-      `site:linkedin.com/jobs ${sokeord} ${geografi}`,
-      `site:linkedin.com/posts "${sokeord}" "søker" OR "vi ansetter" OR "ledig stilling" ${iÅr}`,
-      `site:linkedin.com "${bransje}" stilling ${geografi} ${iÅr}`,
+      `"${sokeord}" "vi søker" OR "ledig stilling" OR "søker du" site:linkedin.com/posts`,
+      `"${bransje}" rekrutterer OR ansetter ${geografi} site:linkedin.com ${iÅr}`,
+      `"${sokeord}" ${geografi} rekruttering site:linkedin.com -site:linkedin.com/in/`,
     ];
     for (const query of linkedinSøk) {
       try {
