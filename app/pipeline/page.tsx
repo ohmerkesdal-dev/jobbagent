@@ -11,6 +11,7 @@ import {
   buttonWarning,
 } from "@/lib/ui-classes";
 import type {
+  Kontaktperson,
   PipelineKanal,
   PipelineKontakt,
   PipelineStatus,
@@ -62,6 +63,22 @@ function dagerSiden(iso: string): number {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return 0;
   return Math.floor((Date.now() - t) / 86_400_000);
+}
+
+function parseDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url.slice(0, 30);
+  }
+}
+
+function kildePillStyle(domain: string): React.CSSProperties {
+  if (domain.includes("linkedin"))  return { background: "#E6F1FB", color: "#0C447C" };
+  if (domain.includes("finn"))      return { background: "#FAEEDA", color: "#633806" };
+  if (domain.includes("webcruiter"))return { background: "#EEEDFE", color: "#3C3489" };
+  if (domain.includes("nav"))       return { background: "#E1F5EE", color: "#085041" };
+  return { background: "#F4F4F5", color: "#52525B" };
 }
 
 function KanalIkon({ kanal }: { kanal: PipelineKanal }) {
@@ -119,6 +136,12 @@ export default function PipelinePage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [filterOppfølging, setFilterOppfølging] = useState(false);
+  // URL-import
+  const [urlInput, setUrlInput] = useState("");
+  // Inline kontakt-skjema per kort
+  const [kontaktSkjemaId, setKontaktSkjemaId] = useState<string | null>(null);
+  const [kontaktNavn, setKontaktNavn] = useState("");
+  const [kontaktLinkedin, setKontaktLinkedin] = useState("");
 
   const refresh = useCallback(() => {
     setList(loadPipelineContacts());
@@ -128,6 +151,54 @@ export default function PipelinePage() {
     setMounted(true);
     refresh();
   }, [refresh]);
+
+  function leggTilFraUrl(e: React.FormEvent) {
+    e.preventDefault();
+    const raw = urlInput.trim();
+    if (!raw) return;
+    const domain = parseDomain(raw);
+    const kanal: PipelineKanal = domain.includes("linkedin") ? "linkedin" : "epost";
+    const now = new Date().toISOString();
+    const k: PipelineKontakt = {
+      id: newId(),
+      navn: domain,
+      tittel: "",
+      selskap: "",
+      kanal,
+      status: "sendt",
+      melding: "",
+      signal: "",
+      kildeUrl: raw,
+      sendtDato: now,
+      oppfølgingDato: addHoursToIso(now, 48),
+      notat: "",
+      historikk: [{ status: "sendt", dato: now }],
+      rolle: "",
+      dato: now,
+      kolonne: "Interessant",
+    };
+    upsertKontakt(k);
+    refresh();
+    setUrlInput("");
+  }
+
+  function lagreKontaktperson(kortId: string) {
+    const navn = kontaktNavn.trim();
+    if (!navn) return;
+    const current = loadPipelineContacts();
+    const i = current.findIndex((k) => k.id === kortId);
+    if (i < 0) return;
+    const kp: Kontaktperson = {
+      navn,
+      linkedinUrl: kontaktLinkedin.trim() || undefined,
+    };
+    current[i] = { ...current[i], kontaktperson: kp };
+    savePipeline(current);
+    setKontaktSkjemaId(null);
+    setKontaktNavn("");
+    setKontaktLinkedin("");
+    refresh();
+  }
 
   const sorted = useMemo(() => {
     const s = [...list].sort(
@@ -214,6 +285,20 @@ export default function PipelinePage() {
           </button>
         </div>
 
+        {/* URL-import */}
+        <form onSubmit={leggTilFraUrl} className="mt-4 flex gap-2">
+          <input
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="Lim inn URL fra Finn.no, LinkedIn, Webcruiter, NAV…"
+            className="flex-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm text-zinc-950 placeholder:text-zinc-400 outline-none focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
+          />
+          <button type="submit"
+            className="whitespace-nowrap rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800">
+            Legg til →
+          </button>
+        </form>
+
         {oppfølgKø.length > 0 && (
           <button
             type="button"
@@ -266,59 +351,119 @@ export default function PipelinePage() {
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {sorted.map((k) => (
-                <li key={k.id}>
-                  <button
-                    type="button"
-                    onClick={() => setDetailId(k.id)}
-                    className="flex w-full items-start gap-3 rounded-xl border border-zinc-200 bg-white p-4 text-left transition hover:border-zinc-300 sm:gap-4"
-                  >
-                    <div
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${STATUS_STYLE[k.status].bg} ${STATUS_STYLE[k.status].text}`}
-                    >
-                      {initials(k.navn)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-zinc-950">
-                          {k.navn}
-                        </span>
-                        <span
-                          className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLE[k.status].bg} ${STATUS_STYLE[k.status].text}`}
-                        >
-                          {STATUS_STYLE[k.status].label}
-                        </span>
-                      </div>
-                      <p className="truncate text-sm text-zinc-500">
-                        {k.tittel}
-                        {k.tittel && k.selskap ? " · " : ""}
-                        {k.selskap}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
-                        <span className="flex items-center gap-1">
-                          <KanalIkon kanal={k.kanal} />
-                          {k.kanal}
-                        </span>
-                        <span>{dagerSiden(k.sendtDato)} d. siden sendt</span>
-                        {k.status === "sendt" &&
-                          Date.now() > new Date(k.oppfølgingDato).getTime() && (
-                            <span className="text-amber-600">
-                              Trenger oppfølging
+              {sorted.map((k) => {
+                const domain = k.kildeUrl ? parseDomain(k.kildeUrl) : null;
+                const skjemaÅpent = kontaktSkjemaId === k.id;
+                return (
+                  <li key={k.id}>
+                    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                      {/* Hoved-rad — klikk for detaljer */}
+                      <button
+                        type="button"
+                        onClick={() => setDetailId(k.id)}
+                        className="flex w-full items-start gap-3 p-4 text-left transition hover:bg-zinc-50 sm:gap-4"
+                      >
+                        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${STATUS_STYLE[k.status].bg} ${STATUS_STYLE[k.status].text}`}>
+                          {initials(k.navn)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-zinc-950">{k.navn}</span>
+                            <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLE[k.status].bg} ${STATUS_STYLE[k.status].text}`}>
+                              {STATUS_STYLE[k.status].label}
                             </span>
+                            {domain && (
+                              <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                                style={kildePillStyle(domain)}>
+                                {domain}
+                              </span>
+                            )}
+                          </div>
+                          {(k.tittel || k.selskap) && (
+                            <p className="truncate text-sm text-zinc-500">
+                              {k.tittel}{k.tittel && k.selskap ? " · " : ""}{k.selskap}
+                            </p>
                           )}
+                          {k.kontaktperson && (
+                            <p className="mt-0.5 text-xs font-medium text-violet-600">
+                              {k.kontaktperson.navn}
+                              {k.kontaktperson.linkedinUrl && (
+                                <a href={k.kontaktperson.linkedinUrl} target="_blank" rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="ml-1 underline">↗</a>
+                              )}
+                            </p>
+                          )}
+                          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+                            <span className="flex items-center gap-1">
+                              <KanalIkon kanal={k.kanal} />
+                              {k.kanal}
+                            </span>
+                            <span>{dagerSiden(k.sendtDato)} d. siden</span>
+                            {k.status === "sendt" && Date.now() > new Date(k.oppfølgingDato).getTime() && (
+                              <span className="text-amber-600">Trenger oppfølging</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Footer-rad med handlinger */}
+                      <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 bg-zinc-50 px-4 py-2">
+                        {k.kildeUrl && (
+                          <a href={k.kildeUrl} target="_blank" rel="noopener noreferrer"
+                            className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100">
+                            {domain} ↗
+                          </a>
+                        )}
+                        <button type="button"
+                          onClick={() => {
+                            if (skjemaÅpent) { setKontaktSkjemaId(null); return; }
+                            setKontaktNavn(k.kontaktperson?.navn ?? "");
+                            setKontaktLinkedin(k.kontaktperson?.linkedinUrl ?? "");
+                            setKontaktSkjemaId(k.id);
+                          }}
+                          className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100">
+                          {k.kontaktperson ? "✏ Kontakt" : "+ Kontakt"}
+                        </button>
                       </div>
+
+                      {/* Inline kontakt-skjema */}
+                      {skjemaÅpent && (
+                        <div className="border-t border-zinc-100 bg-white px-4 py-3">
+                          <p className="mb-2 text-xs font-semibold text-zinc-500">Kontaktperson</p>
+                          <div className="flex gap-2">
+                            <input
+                              value={kontaktNavn}
+                              onChange={(e) => setKontaktNavn(e.target.value)}
+                              placeholder="Navn"
+                              className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-950"
+                            />
+                            <input
+                              value={kontaktLinkedin}
+                              onChange={(e) => setKontaktLinkedin(e.target.value)}
+                              placeholder="LinkedIn-URL (valgfritt)"
+                              className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-950"
+                            />
+                            <button type="button" onClick={() => lagreKontaktperson(k.id)}
+                              className="rounded-lg bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800">
+                              Lagre
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </button>
-                  {AI_HINTS[k.kolonne] && (
-                    <div className="mt-1 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                      <svg className="h-3.5 w-3.5 shrink-0 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
-                      </svg>
-                      {AI_HINTS[k.kolonne]}
-                    </div>
-                  )}
-                </li>
-              ))}
+
+                    {AI_HINTS[k.kolonne] && (
+                      <div className="mt-1 flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-600 border border-zinc-100">
+                        <svg className="h-3.5 w-3.5 shrink-0 text-zinc-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                        </svg>
+                        {AI_HINTS[k.kolonne]}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

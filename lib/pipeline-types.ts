@@ -16,6 +16,11 @@ export type PipelineHistorikkEntry = {
   dato: string;
 };
 
+export type Kontaktperson = {
+  navn: string;
+  linkedinUrl?: string;
+};
+
 export type PipelineKontakt = Omit<PipelineCardType, "rolle" | "dato" | "kolonne"> & {
   navn: string;
   tittel: string;
@@ -31,4 +36,8 @@ export type PipelineKontakt = Omit<PipelineCardType, "rolle" | "dato" | "kolonne
   rolle: string;
   dato: string;
   kolonne: PipelineColumn;
+  /** URL fra Finn.no, LinkedIn, Webcruiter el.l. — satt ved URL-import */
+  kildeUrl?: string;
+  /** Kontaktperson lagt til manuelt */
+  kontaktperson?: Kontaktperson;
 };
