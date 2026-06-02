@@ -97,6 +97,15 @@ export async function POST(request: Request) {
   }
   console.log("NAV:", funn.filter(f => f.kildeNavn === "NAV").length, "stillinger");
 
+  // Søkeordutvidelse — brukes for relevansfiltrering i DEL 2 og DEL 3
+  const relevanteSøkeord = [
+    sokeord,
+    ...(sokeord.includes("regnskap") ? ["regnskapsfører","regnskapsmedarbeider","controller","økonomi","revisjon","revisor","regnskap"] : []),
+    ...(sokeord.includes("hr")       ? ["human resources","people","rekruttering","personalansvarlig","personalleder"] : []),
+    ...(sokeord.includes("salg")     ? ["salgsansvarlig","sales","account manager","business development"] : []),
+    ...(sokeord.includes("it")       ? ["utvikler","developer","engineer","systemutvikler","frontend","backend"] : []),
+  ];
+
   // ──────────────────────────────────────────────────────────────────────────
   // DEL 2 — Finn.no via Brave (kun finn.no/job-URLer)
   // ──────────────────────────────────────────────────────────────────────────
@@ -118,13 +127,16 @@ export async function POST(request: Request) {
           if (!itemUrl.includes("finn.no/job")) continue;
           const title   = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
           if (!title || title.length < 10) continue;
+          const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
+          const tekst   = `${title} ${desc}`.toLowerCase();
+          if (!relevanteSøkeord.some(ord => tekst.includes(ord))) continue;
           funn.push({
             id:          randomUUID(),
             signalType:  "Utlyst stilling",
             kategori:    "stilling",
             title,
             location:    geografi,
-            beskrivelse: stripHtml(typeof it.description === "string" ? it.description : "").slice(0, 300) || undefined,
+            beskrivelse: desc.slice(0, 300) || undefined,
             url:         itemUrl,
             kilde:       "Finn.no",
             kildeNavn:   "Finn.no",
@@ -158,15 +170,19 @@ export async function POST(request: Request) {
           const it      = item as Record<string, unknown>;
           const itemUrl = typeof it.url === "string" ? it.url.trim() : "";
           if (!itemUrl.includes("linkedin.com")) continue;
+          if (itemUrl.includes("/in/")) continue;
           const title   = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
           if (!title || title.length < 5) continue;
+          const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
+          const tekst   = `${title} ${desc}`.toLowerCase();
+          if (!relevanteSøkeord.some(ord => tekst.includes(ord))) continue;
           funn.push({
             id:          randomUUID(),
             signalType:  "LinkedIn",
             kategori:    "stilling",
             title,
             location:    geografi,
-            beskrivelse: stripHtml(typeof it.description === "string" ? it.description : "").slice(0, 300) || undefined,
+            beskrivelse: desc.slice(0, 300) || undefined,
             url:         itemUrl,
             kilde:       "LinkedIn",
             kildeNavn:   "LinkedIn",
