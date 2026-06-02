@@ -145,7 +145,8 @@ export async function POST(request: Request) {
     const hdr          = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
     const linkedinSøk  = [
       `site:linkedin.com/jobs ${sokeord} ${geografi}`,
-      `site:linkedin.com/posts "${sokeord}" "søker" OR "vi ansetter" ${iÅr}`,
+      `site:linkedin.com/posts "${sokeord}" "søker" OR "vi ansetter" OR "ledig stilling" ${iÅr}`,
+      `site:linkedin.com "${bransje}" stilling ${geografi} ${iÅr}`,
     ];
     for (const query of linkedinSøk) {
       try {
@@ -190,6 +191,7 @@ export async function POST(request: Request) {
     const signalSøk         = [
       `${sokeord} selskap funding investering ansetter Norge ${iÅr}`,
       `${bransje} vekst ekspanderer ${geografi} ${iÅr}`,
+      `${sokeord} selskap "ny CEO" OR "ny CFO" OR "ny direktør" Norge ${iÅr}`,
     ];
     for (const query of signalSøk) {
       try {
