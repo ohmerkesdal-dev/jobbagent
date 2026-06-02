@@ -484,6 +484,24 @@ export default function FinnPage() {
                       <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${badge.cls}`}>
                         {isLocked ? "🔒 " : ""}{badge.label}
                       </span>
+                      {f.kildeNavn && f.kildeNavn !== "Nett" && (
+                        <span
+                          className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold"
+                          style={
+                            f.kildeNavn === "LinkedIn"
+                              ? { background: "#E6F1FB", color: "#0C447C" }
+                              : f.kildeNavn === "Finn.no"
+                                ? { background: "#FAEEDA", color: "#633806" }
+                                : f.kildeNavn === "Webcruiter"
+                                  ? { background: "#EEEDFE", color: "#3C3489" }
+                                  : f.kildeNavn === "NAV"
+                                    ? { background: "#E1F5EE", color: "#085041" }
+                                    : {}
+                          }
+                        >
+                          {f.kildeNavn}
+                        </span>
+                      )}
                       {fristBadge}
                     </div>
 

@@ -1,19 +1,11 @@
 import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import type { ProfilScanInput, ScannerFunn, ScannerKategori } from "@/lib/scanner-types";
-import {
-  fetchBraveWebSearch,
-  sleepMs,
-  type WebSearchItem,
-} from "@/lib/brave-search";
 import { isWebScanEnabled } from "@/lib/scanner-web-config";
-import { byggSelskapSøk } from "@/lib/scanner-queries";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 60;
-
-const BRAVE_DELAY_MS = 400;
 
 type Body = {
   profile?: ProfilScanInput;
@@ -38,69 +30,6 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").trim();
 }
 
-function klassifiser(
-  title: string,
-  description: string,
-  url: string,
-): ScannerKategori {
-  const text = (title + " " + description + " " + url).toLowerCase();
-  if (
-    url.includes("linkedin.com") ||
-    text.includes("connections on linkedin") ||
-    (text.includes("view") && text.includes("profile"))
-  )
-    return "person";
-  if (
-    url.includes("nav.no") ||
-    text.includes("søker du") ||
-    text.includes("ledig stilling") ||
-    text.includes("vi søker") ||
-    text.includes("søknadsfrist") ||
-    text.includes("fulltid") ||
-    text.includes("deltid")
-  )
-    return "stilling";
-  if (
-    text.includes("funding") ||
-    text.includes("millioner") ||
-    text.includes("ansetter") ||
-    text.includes("ekspanderer") ||
-    text.includes("vekst") ||
-    text.includes("henter") ||
-    text.includes("ny ceo") ||
-    text.includes("ny cfo")
-  )
-    return "signal";
-  return "nyhet";
-}
-
-function webItemTilFunn(
-  item: WebSearchItem,
-  kildeLabel: string,
-): ScannerFunn | null {
-  const title = item.title?.trim();
-  const url = item.link?.trim();
-  if (!title || !url) return null;
-  const rawSnippet = item.snippet ?? "";
-  const beskrivelse = stripHtml(rawSnippet);
-  const lower = url.toLowerCase();
-  const signalType: ScannerFunn["signalType"] = lower.includes("linkedin.com")
-    ? "LinkedIn"
-    : lower.includes("finn.no")
-      ? "Utlyst stilling"
-      : "Nyhet";
-  const kategori = klassifiser(title, beskrivelse, url);
-  return {
-    id: makeId(url, title),
-    signalType,
-    kategori,
-    title,
-    url,
-    beskrivelse,
-    kilde: kildeLabel,
-    funnetDato: new Date().toISOString(),
-  };
-}
 
 export async function POST(request: Request) {
   let body: Body;
@@ -243,94 +172,80 @@ export async function POST(request: Request) {
   const webEnabled = isWebScanEnabled();
   console.log("webEnabled:", webEnabled, "navStillinger:", funn.filter(f => f.kategori === "stilling").length);
 
-  // ── Del 2: Brave Search — NAV-stillinger + signaler ───────────────────────
+  // ── Del 2: LinkedIn + multi-kilde parallell søk ──────────────────────────
   if (webEnabled) {
     const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
     const geo = p.geography || "Oslo";
-
     const søkTerm = p.seeking.split(" ")[0] || sokeord;
-    const braveSearches: { query: string; kategori: ScannerKategori }[] = [
-      {
-        query: `site:arbeidsplassen.nav.no ${søkTerm} stilling`,
-        kategori: "stilling",
-      },
-      {
-        query: `${søkTerm} ledig stilling ${geo} 2026`,
-        kategori: "stilling",
-      },
-      {
-        query: `norsk selskap ${p.industry || søkTerm} ansetter vekst funding 2026`,
-        kategori: "signal",
-      },
+
+    const linkedinSøk = [
+      `site:linkedin.com/jobs/view "${søkTerm}" "${geo}"`,
+      `site:linkedin.com/jobs/view "${søkTerm}" Norway`,
+      `"${søkTerm}" "vi søker" OR "ledig stilling" site:linkedin.com`,
+      `"${søkTerm}" site:finn.no/job`,
+      `"${søkTerm}" site:webcruiter.com`,
     ];
 
-    for (const search of braveSearches) {
-      await sleepMs(BRAVE_DELAY_MS);
-      try {
-        const res = await fetch(
-          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(search.query)}&count=5&country=NO`,
-          { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } },
-        );
-        if (!res.ok) continue;
+    const selskapsSøk = selskaper.slice(0, 5).map((navn) =>
+      `"${navn}" ansetter OR stilling OR jobb site:linkedin.com OR site:finn.no OR site:webcruiter.com`
+    );
 
-        const data = (await res.json()) as { web?: { results?: unknown[] } };
-        for (const item of data.web?.results ?? []) {
-          const it = item as Record<string, unknown>;
-          const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
-          const url = typeof it.url === "string" ? it.url.trim() : "";
-          if (!title || !url) continue;
+    const alleSøk = [...linkedinSøk, ...selskapsSøk];
 
-          const desc = typeof it.description === "string"
-            ? stripHtml(it.description).slice(0, 300)
-            : "";
-          const text = `${title} ${desc}`.toLowerCase();
+    const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
+    const burl = (q: string) =>
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO`;
 
-          const erLinkedIn = url.includes("linkedin.com");
-          const erPriskomp =
-            text.includes("sammenlign") ||
-            text.includes("finn beste") ||
-            NON_JOB_DOMAINS.some((d) => url.includes(d));
+    const søkResultater = await Promise.all(
+      alleSøk.map((query) =>
+        fetch(burl(query), { headers: braveHdr, cache: "no-store" })
+          .then((r) => (r.ok ? (r.json() as Promise<{ web?: { results?: unknown[] } }>) : null))
+          .catch(() => null)
+      )
+    );
 
-          if (erPriskomp) continue;
+    for (const data of søkResultater) {
+      if (!data) continue;
+      for (const item of (data.web?.results ?? []).slice(0, 3)) {
+        const it = item as Record<string, unknown>;
+        const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
+        const url = typeof it.url === "string" ? it.url.trim() : "";
+        if (!title || title.length < 10 || !url) continue;
 
-          let kategori: ScannerKategori = search.kategori;
-          if (erLinkedIn) kategori = "person";
+        const erLinkedIn = url.includes("linkedin.com");
+        const erFinn = url.includes("finn.no");
+        const erWebcruiter = url.includes("webcruiter.com");
+        if (erLinkedIn && url.includes("/in/")) continue;
+        if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
 
-          const signalType: ScannerFunn["signalType"] = erLinkedIn
-            ? "LinkedIn"
-            : kategori === "stilling"
-              ? "Utlyst stilling"
-              : "Nyhet";
+        const desc = typeof it.description === "string"
+          ? stripHtml(it.description).slice(0, 300)
+          : "";
 
-          funn.push({
-            id: makeId(url, title),
-            signalType,
-            kategori,
-            title,
-            url,
-            location: geo || undefined,
-            beskrivelse: desc || undefined,
-            kilde: "Brave Search",
-            funnetDato: new Date().toISOString(),
-          });
-        }
-      } catch (e) {
-        warnings.push(`Brave: ${e instanceof Error ? e.message : "feil"}`);
-      }
-    }
+        const tekst = `${title} ${desc}`.toLowerCase();
+        const signalOrd = ["funding", "investering", "vekst", "ekspanderer", "ny ceo", "ny cfo", "millioner"];
+        const erSignal = signalOrd.some((s) => tekst.includes(s));
 
-    // Selskaper brukeren følger
-    for (const navn of selskaper) {
-      await sleepMs(BRAVE_DELAY_MS);
-      const q = byggSelskapSøk(navn);
-      const result = await fetchBraveWebSearch(q, { maxResults: 8 });
-      if (!result.ok) {
-        warnings.push(`Selskap «${navn}»: ${result.detail}`);
-        continue;
-      }
-      for (const it of result.items) {
-        const f = webItemTilFunn(it, `Brave Search (selskap: ${navn})`);
-        if (f) funn.push({ ...f, signalType: "Selskap", kategori: "signal", company: navn });
+        const kildeNavn = erLinkedIn ? "LinkedIn" : erFinn ? "Finn.no" : erWebcruiter ? "Webcruiter" : "Nett";
+        const signalType: ScannerFunn["signalType"] = erLinkedIn
+          ? "LinkedIn"
+          : erFinn || erWebcruiter
+            ? "Utlyst stilling"
+            : "Nyhet";
+        const kategori: ScannerKategori = erSignal ? "signal" : "stilling";
+
+        funn.push({
+          id: makeId(url, title),
+          signalType,
+          kategori,
+          title,
+          url,
+          location: geo || undefined,
+          beskrivelse: desc || undefined,
+          kilde: kildeNavn,
+          kildeNavn,
+          funnetDato: new Date().toISOString(),
+        });
       }
     }
   }
@@ -400,6 +315,11 @@ export async function POST(request: Request) {
       warnings.push(`Signalsøk: ${e instanceof Error ? e.message : "feil"}`);
     }
   }
+
+  console.log("NAV:", funn.filter((f) => f.kilde === "NAV").length);
+  console.log("LinkedIn:", funn.filter((f) => f.kildeNavn === "LinkedIn").length);
+  console.log("Finn.no:", funn.filter((f) => f.kildeNavn === "Finn.no").length);
+  console.log("Totalt:", funn.length);
 
   const seen = new Set<string>();
   const deduped = funn.filter((f) => {

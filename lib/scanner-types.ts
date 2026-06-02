@@ -27,6 +27,8 @@ export type ScannerFunn = {
   deadline?: string;
   beskrivelse?: string;
   kilde: string;
+  /** Visningsnavn for kilden (LinkedIn, Finn.no, Webcruiter, NAV) */
+  kildeNavn?: string;
   /** Når Jobbagent registrerte funnet */
   funnetDato: string;
 };
