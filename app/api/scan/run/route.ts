@@ -168,8 +168,10 @@ export async function POST(request: Request) {
 
         if (!title || title.length < 10 || !url) continue;
         if (!erGyldigStillingURL(url)) continue;
-        // Finn søkesider er ikke individuelle annonser
-        if (url.includes("finn.no") && (url.includes("search") || url.includes("?q="))) continue;
+        // Finn: kun individuelle jobbannonser (krever finnkode)
+        if (url.includes("finn.no") && !url.includes("finnkode=")) continue;
+        // NAV: kun individuelle stillinger (krever /stilling/ UUID-path)
+        if (url.includes("arbeidsplassen.nav.no") && !url.includes("/stilling/")) continue;
 
         const frist    = trekkUtFrist(desc);
         const company  = extractCompany(title, url);
@@ -267,8 +269,10 @@ export async function POST(request: Request) {
 
         // Forkast stillinger som ikke er fra godkjente stillingssider
         if (kategori === "stilling" && !erGyldigStillingURL(url)) continue;
-        // Forkast Finn søkesider
-        if (url.includes("finn.no") && (url.includes("search") || url.includes("?q="))) continue;
+        // Finn: kun individuelle annonser
+        if (url.includes("finn.no") && !url.includes("finnkode=")) continue;
+        // NAV: kun individuelle stillinger
+        if (url.includes("arbeidsplassen.nav.no") && !url.includes("/stilling/")) continue;
 
         const company = kategori === "stilling" ? extractCompany(title, url) : undefined;
 
@@ -299,12 +303,15 @@ export async function POST(request: Request) {
     const burl = (q: string) =>
       `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
 
+    // Nyhetsdomener brukes direkte i søkene for garantert kvalitet
+    const nyhetsSite = "site:e24.no OR site:dn.no OR site:finansavisen.no OR site:nrk.no OR site:shifter.io OR site:tu.no";
+
     try {
       const [fundingRes, lederRes, vekstRes, bransjeRes] = await Promise.all([
-        fetch(burl(`${bransje} selskap funding investering Norge 2026`), { headers: braveHdr }),
-        fetch(burl(`${bransje} ny CEO CFO direktør ansetter Norge 2026`), { headers: braveHdr }),
-        fetch(burl(`${bransje} selskap vekst ekspanderer ansetter ${geo} 2026`), { headers: braveHdr }),
-        fetch(burl(`${bransje} bransje Norge nyheter markedsutvikling 2026`), { headers: braveHdr }),
+        fetch(burl(`${bransje} selskap "henter" OR "funding" OR "investering" millioner Norge 2026 ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} "ny direktør" OR "ny CEO" OR "ny CFO" OR "ny konserndirektør" Norge 2026 ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} selskap "ekspanderer" OR "vekst" OR "ansetter" Norge 2026 ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} bransje Norge markedsutvikling nyheter 2026 ${nyhetsSite}`), { headers: braveHdr }),
       ]);
 
       const signalTyper: {
@@ -330,6 +337,11 @@ export async function POST(request: Request) {
           if (!title || title.length < 10 || !url) continue;
           if (url.includes("linkedin.com")) continue;
           if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
+
+          // Skip jobblistingdomener fra signal-søk (disse er stillinger, ikke signaler)
+          const JOBB_DOMENER = ["arbeidsplassen.nav.no", "finn.no", "webcruiter.com", "jobbsafari.no", "karriere.no"];
+          if (JOBB_DOMENER.some((d) => url.includes(d))) continue;
+
           const desc = typeof it.description === "string"
             ? stripHtml(it.description).slice(0, 300)
             : "";
@@ -337,6 +349,15 @@ export async function POST(request: Request) {
           // Klassifiser som bransjenyhet hvis kilden er en nyhetsside
           const erNyhetsKilde = NYHETSDOMENER.some((d) => url.includes(d));
           const faktiskSubtype = erNyhetsKilde ? "bransjenyhet" : subtype;
+
+          // For funding/ledelse/vekst: krev at signal-ord finnes i tittelen
+          if (faktiskSubtype !== "bransjenyhet") {
+            const SIGNAL_ORD_TITTEL = [
+              "funding", "kapital", "investering", "direktør", "ceo", "cfo",
+              "konserndirektør", "vekst", "ekspanderer", "henter", "millioner", "kjøper",
+            ];
+            if (!SIGNAL_ORD_TITTEL.some((o) => title.toLowerCase().includes(o))) continue;
+          }
 
           funn.push({
             id: makeId(url, title),
