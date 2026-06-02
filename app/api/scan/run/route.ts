@@ -7,50 +7,29 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 60;
 
-type Body = {
-  profile?: ProfilScanInput;
-  selskaper?: unknown;
-};
+type Body = { profile?: ProfilScanInput; selskaper?: unknown };
 
 function makeId(url: string, title: string): string {
-  return createHash("sha256")
-    .update(`${url}|${title}`)
-    .digest("hex")
-    .slice(0, 24);
+  return createHash("sha256").update(`${url}|${title}`).digest("hex").slice(0, 24);
 }
 
-
-
-const NON_JOB_DOMAINS = [
-  "proff.no", "1881.no", "gulesider.no", "brreg.no", "hitta.no",
-  "purehelp.no", "finansportalen.no", "sammenlign", "trustpilot",
-];
-
-const GYLDIGE_STILLING_DOMENER = [
-  "finn.no/job",
-  "arbeidsplassen.nav.no/stillinger",
-  "webcruiter.com",
-  "jobbsafari.no",
-  "karriere.no",
-  "linkedin.com/jobs/view",
-];
-
-const NYHETSDOMENER = [
-  "e24.no", "finansavisen.no", "nrk.no", "dn.no",
-  "dagbladet.no", "aftenposten.no", "vg.no",
-];
-
-function erGyldigStillingURL(url: string): boolean {
-  return GYLDIGE_STILLING_DOMENER.some((d) => url.includes(d));
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").trim();
 }
 
-/** Returnerer true for Finn/NAV/LinkedIn søkeoversikter — ikke individuelle annonser */
-function erSøkeside(url: string): boolean {
-  if (url.includes("finn.no") && url.toLowerCase().includes("/search")) return true;
-  if (/finn\.no\/job\/?\?/.test(url) || /finn\.no\/job\/?$/.test(url)) return true;
-  if (url.includes("arbeidsplassen.nav.no/stillinger") && !url.includes("/stilling/")) return true;
-  if (url.includes("linkedin.com/jobs") && !url.includes("/jobs/view/")) return true;
-  return false;
+function extractCompany(title: string, url: string): string | undefined {
+  if (url.includes("linkedin.com")) {
+    const m = title.match(/\bat\s+([^|]+?)\s*\|/i);
+    if (m?.[1]) { const c = m[1].trim(); if (c.length >= 2 && c.length <= 70) return c; }
+  }
+  const clean = title.replace(/\s*\|\s*(FINN\.no|Webcruiter|arbeidsplassen\.nav\.no|NAV|LinkedIn Jobs?|Google Jobs?).*/i, "").trim();
+  const parts = clean.split(/\s+[–—]\s+/);
+  if (parts.length >= 2) {
+    const candidate = parts[parts.length - 1].trim();
+    if (!/^(vi søker|ledig|søker|bli |mulighetsrom)/i.test(candidate) && candidate.length >= 2 && candidate.length <= 70)
+      return candidate;
+  }
+  return undefined;
 }
 
 function trekkUtFrist(desc: string): string | undefined {
@@ -58,494 +37,218 @@ function trekkUtFrist(desc: string): string | undefined {
   return m ? m[1].trim() : undefined;
 }
 
-function extractCompany(title: string, url: string): string | undefined {
-  // LinkedIn: "Title at Company | LinkedIn"
-  if (url.includes("linkedin.com")) {
-    const m = title.match(/\bat\s+([^|]+?)\s*\|/i);
-    if (m?.[1]) {
-      const c = m[1].trim();
-      if (c.length >= 2 && c.length <= 70) return c;
-    }
-  }
-  // Fjern kilde-suffiks: "| FINN.no", "| Webcruiter" osv.
-  const clean = title
-    .replace(/\s*\|\s*(FINN\.no|Webcruiter|arbeidsplassen\.nav\.no|jobbsafari\.no|karriere\.no|NAV|LinkedIn Jobs?).*/i, "")
-    .trim();
-  // "Stillingstittel – Selskapsnavn" (em- eller en-dash)
-  const parts = clean.split(/\s+[–—]\s+/);
-  if (parts.length >= 2) {
-    const candidate = parts[parts.length - 1].trim();
-    const erJobbFragment = /^(vi søker|ledig|søker|bli |mulighetsrom|din |din, |ansvar|oppgaver)/i.test(candidate);
-    if (!erJobbFragment && candidate.length >= 2 && candidate.length <= 70) {
-      return candidate;
-    }
-  }
-  return undefined;
+function kildenavnFraUrl(url: string): string {
+  if (url.includes("finn.no"))           return "Finn.no";
+  if (url.includes("arbeidsplassen.nav")) return "NAV";
+  if (url.includes("linkedin.com"))      return "LinkedIn";
+  if (url.includes("webcruiter.com"))    return "Webcruiter";
+  if (url.includes("jobbsafari.no"))     return "Jobbsafari";
+  if (url.includes("karriere.no"))       return "Karriere.no";
+  if (url.includes("careers.") || url.includes("/careers")) return "Karriereside";
+  return "Nett";
 }
 
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, "").trim();
-}
-
+const NON_JOB_DOMAINS = ["proff.no","1881.no","gulesider.no","brreg.no","hitta.no","purehelp.no","trustpilot"];
+const NYHETSDOMENER   = ["e24.no","finansavisen.no","nrk.no","dn.no","dagbladet.no","aftenposten.no","vg.no","shifter.io","tu.no"];
+const JOBB_ORD        = ["søker","ledig","ansetter","stilling","rolle","hiring","vi ser etter","utlyser","ledighet"];
 
 export async function POST(request: Request) {
   let body: Body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
-  }
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 }); }
 
   const profile = body.profile;
-  if (
-    !profile ||
-    typeof profile !== "object" ||
-    typeof profile.industry !== "string" ||
-    typeof profile.seeking !== "string"
-  ) {
-    return NextResponse.json(
-      { error: "Profil mangler (industry og seeking påkrevd)" },
-      { status: 400 },
-    );
-  }
+  if (!profile || typeof profile !== "object" || typeof (profile as ProfilScanInput).seeking !== "string")
+    return NextResponse.json({ error: "Profil mangler" }, { status: 400 });
 
   const selskaperRaw = body.selskaper;
-  const selskaper =
-    Array.isArray(selskaperRaw) &&
-    selskaperRaw.every((x) => typeof x === "string")
-      ? (selskaperRaw as string[])
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .slice(0, 10)
-      : [];
+  const selskaper = Array.isArray(selskaperRaw) && selskaperRaw.every(x => typeof x === "string")
+    ? (selskaperRaw as string[]).map(s => s.trim()).filter(Boolean).slice(0, 8)
+    : [];
 
   const p: ProfilScanInput = {
-    name: typeof profile.name === "string" ? profile.name : "",
-    seeking: profile.seeking,
-    industry: profile.industry,
-    geography: typeof profile.geography === "string" ? profile.geography : "",
-    bio: typeof profile.bio === "string" ? profile.bio : "",
+    name:      typeof profile.name      === "string" ? profile.name      : "",
+    seeking:   (profile as ProfilScanInput).seeking,
+    industry:  (profile as ProfilScanInput).industry,
+    geography: typeof (profile as ProfilScanInput).geography === "string" ? (profile as ProfilScanInput).geography : "",
+    bio:       typeof (profile as ProfilScanInput).bio       === "string" ? (profile as ProfilScanInput).bio       : "",
   };
 
   const warnings: string[] = [];
   const funn: ScannerFunn[] = [];
-
-  // Computed once — reused by NAV, Brave and Brreg
-  const sokeord = (p.seeking || "regnskap")
-    .toLowerCase()
-    .replace("regnskapsfører", "regnskap")
-    .replace("forretningsutvikler", "forretning")
-    .replace("markedskoordinator", "markedsføring")
-    .replace("controller", "økonomi")
-    .split(" ")[0] || "jobb";
-
   const webEnabled = isWebScanEnabled();
-  console.log("webEnabled:", webEnabled);
+  const now = new Date().toISOString();
 
-  // ── Del 0: NAV pam-stilling-feed (åpen, gratis, live data) ──────────────
+  const geo      = p.geography || "Oslo";
+  const søkTerm  = p.seeking.split(" ")[0] || p.seeking;
+  const bransje  = p.industry || søkTerm;
+  const iÅr      = new Date().getFullYear();
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEL 0 — NAV pam-stilling-feed (live, gratis, direkte lenker)
+  // ─────────────────────────────────────────────────────────────────────────
   try {
-    const FEED_BASE = "https://pam-stilling-feed.nav.no";
+    const FEED_BASE  = "https://pam-stilling-feed.nav.no";
     const USER_AGENT = "Mozilla/5.0 (compatible; Jobbagent/1.0)";
 
     const tokenRes = await fetch(`${FEED_BASE}/api/publicToken`, {
-      headers: { "User-Agent": USER_AGENT },
-      cache: "no-store",
+      headers: { "User-Agent": USER_AGENT }, cache: "no-store",
     });
 
     if (tokenRes.ok) {
-      const tokenText = await tokenRes.text();
-      const tokenMatch = tokenText.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-      const token = tokenMatch?.[0];
+      const token = (await tokenRes.text()).match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/)?.[0];
 
       if (token) {
-        // Brede søkeord fra profil
-        const søkSplit = p.seeking.toLowerCase().split(/\s+/);
-        const keywords = [...new Set([sokeord, søkSplit[0], søkSplit[søkSplit.length - 1]])].filter(Boolean);
+        const kw = [...new Set([søkTerm.toLowerCase(), p.seeking.toLowerCase().split(" ")[0]])].filter(Boolean);
+        const seen = new Set<string>();
+        let path = "/api/v1/feed";
 
-        const seenNav = new Set<string>();
-        let feedPath = "/api/v1/feed";
-        const maxPages = 6;
-
-        for (let page = 0; page < maxPages && funn.filter(f => f.kategori === "stilling" && f.kildeNavn === "NAV").length < 12; page++) {
-          const feedUrl = feedPath.startsWith("http") ? feedPath : `${FEED_BASE}${feedPath}`;
-          const feedRes = await fetch(feedUrl, {
+        for (let page = 0; page < 4; page++) {
+          const url = path.startsWith("http") ? path : `${FEED_BASE}${path}`;
+          const res = await fetch(url, {
             headers: { Accept: "application/json", Authorization: `Bearer ${token}`, "User-Agent": USER_AGENT },
             cache: "no-store",
           });
-          if (!feedRes.ok) { console.log("NAV feed status:", feedRes.status); break; }
+          if (!res.ok) break;
 
-          const data = (await feedRes.json()) as { items?: unknown[]; next_url?: string | null };
-          const items = (data.items ?? []) as Array<Record<string, unknown>>;
-
-          // Logg struktur første gang for debugging
-          if (page === 0 && items[0]) console.log("NAV item-nøkler:", Object.keys(items[0]));
-
-          for (const item of items) {
-            // Prøv begge mulige strukturer (gammel _feed_entry og ny flat)
-            const fe = (item._feed_entry ?? item) as Record<string, unknown>;
+          const data = (await res.json()) as { items?: unknown[]; next_url?: string | null };
+          for (const raw of (data.items ?? []) as Array<Record<string, unknown>>) {
+            const fe        = (raw._feed_entry ?? raw) as Record<string, unknown>;
             if (fe.status && fe.status !== "ACTIVE") continue;
+            const title     = String(fe.jobtitle ?? fe.title ?? raw.title ?? "").trim();
+            const uuid      = String(fe.uuid ?? raw.uuid ?? "").trim();
+            if (!title || !uuid || seen.has(uuid)) continue;
 
-            const title = String(fe.jobtitle ?? fe.title ?? item.title ?? "").trim();
-            const uuid  = String(fe.uuid ?? item.uuid ?? "").trim();
-            if (!title || !uuid || seenNav.has(uuid)) continue;
+            const company   = String((fe.employer as Record<string,unknown>|undefined)?.name ?? fe.businessName ?? raw.businessName ?? "");
+            const location  = String((fe.workLocations as Array<{municipal?:string}>|undefined)?.[0]?.municipal ?? fe.municipal ?? "");
+            const blob      = `${title} ${company} ${location}`.toLowerCase();
+            if (!kw.some(k => blob.includes(k))) continue;
 
-            const companyName = String(
-              (fe.employer as Record<string, unknown> | undefined)?.name ??
-              fe.businessName ?? item.businessName ?? ""
-            );
-            const municipal = String(
-              (fe.workLocations as Array<{municipal?: string}> | undefined)?.[0]?.municipal ??
-              fe.municipal ?? item.municipal ?? ""
-            );
-
-            const blob = `${title} ${companyName} ${municipal}`.toLowerCase();
-            if (!keywords.some(k => blob.includes(k))) continue;
-
-            seenNav.add(uuid);
+            seen.add(uuid);
             funn.push({
-              id: uuid,
-              signalType: "Utlyst stilling",
-              kategori: "stilling",
-              title,
-              company: companyName || undefined,
-              location: municipal || undefined,
+              id: uuid, signalType: "Utlyst stilling", kategori: "stilling",
+              title, company: company || undefined, location: location || undefined,
               url: `https://arbeidsplassen.nav.no/stillinger/stilling/${uuid}`,
-              kilde: "NAV",
-              kildeNavn: "NAV",
-              funnetDato: new Date().toISOString(),
+              kilde: "NAV", kildeNavn: "NAV", funnetDato: now,
             });
           }
-
           const next = data.next_url;
-          if (!next) break;
-          feedPath = next;
+          if (!next || funn.filter(f => f.kildeNavn === "NAV").length >= 10) break;
+          path = next;
         }
-        console.log("NAV stillinger:", funn.filter(f => f.kildeNavn === "NAV").length);
       }
     }
-  } catch (e) {
-    console.error("NAV feil:", e);
-    warnings.push(`NAV: ${e instanceof Error ? e.message : "feil"}`);
-  }
+  } catch (e) { warnings.push(`NAV: ${e instanceof Error ? e.message : "feil"}`); }
+  console.log("NAV:", funn.filter(f => f.kildeNavn === "NAV").length);
 
-  // ── Del 1: Stillinger — SerpAPI Google Jobs (primær) eller Brave (fallback) ─
-  const geo = p.geography || "Oslo";
-  const søkTerm = p.seeking.split(" ")[0] || sokeord;
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEL 1 — SerpAPI Google Jobs (Finn.no + LinkedIn + alle jobboards)
+  // ─────────────────────────────────────────────────────────────────────────
   if (process.env.SERPAPI_API_KEY) {
-    // ── Google Jobs via SerpAPI (gir direkte Finn.no/LinkedIn/NAV-lenker) ──────
-    const serpKey = process.env.SERPAPI_API_KEY;
-
     type ApplyOption = { title: string; link: string };
-    type GoogleJob = {
-      title: string;
-      company_name?: string;
-      location?: string;
-      description?: string;
-      detected_extensions?: { posted_at?: string; schedule_type?: string };
-      apply_options?: ApplyOption[];
-    };
+    type GoogleJob   = { title: string; company_name?: string; location?: string; description?: string; apply_options?: ApplyOption[] };
 
-    const queries = [
-      `${p.seeking} ${geo}`,
-      `${p.seeking} Norge`,
-    ];
-
-    const serpResultater = await Promise.all(
-      queries.map((q) =>
-        fetch(
-          `https://serpapi.com/search.json?engine=google_jobs&q=${encodeURIComponent(q)}&location=${encodeURIComponent(geo + ", Norway")}&hl=no&gl=no&api_key=${serpKey}`,
-          { cache: "no-store" }
-        )
-          .then((r) => (r.ok ? (r.json() as Promise<{ jobs_results?: GoogleJob[] }>) : null))
+    const serpResults = await Promise.all(
+      [`${p.seeking} ${geo}`, `${p.seeking} Norge`].map(q =>
+        fetch(`https://serpapi.com/search.json?engine=google_jobs&q=${encodeURIComponent(q)}&location=${encodeURIComponent(geo + ", Norway")}&hl=no&gl=no&api_key=${process.env.SERPAPI_API_KEY}`, { cache: "no-store" })
+          .then(r => r.ok ? r.json() as Promise<{ jobs_results?: GoogleJob[] }> : null)
           .catch(() => null)
       )
     );
 
-    for (const data of serpResultater) {
+    for (const data of serpResults) {
       if (!data) continue;
       for (const job of data.jobs_results ?? []) {
         if (!job.title) continue;
-
-        // Velg beste apply-lenke: foretrekk Finn → LinkedIn → NAV → første
         const applyUrl =
-          job.apply_options?.find((o) => o.link.includes("finn.no"))?.link ||
-          job.apply_options?.find((o) => o.link.includes("linkedin.com/jobs"))?.link ||
-          job.apply_options?.find((o) => o.link.includes("arbeidsplassen.nav.no"))?.link ||
-          job.apply_options?.[0]?.link ||
-          "";
-
+          job.apply_options?.find(o => o.link.includes("finn.no"))?.link ||
+          job.apply_options?.find(o => o.link.includes("linkedin.com/jobs"))?.link ||
+          job.apply_options?.find(o => o.link.includes("arbeidsplassen.nav.no"))?.link ||
+          job.apply_options?.[0]?.link || "";
         if (!applyUrl) continue;
-
-        const kildeNavn =
-          applyUrl.includes("finn.no") ? "Finn.no" :
-          applyUrl.includes("linkedin.com") ? "LinkedIn" :
-          applyUrl.includes("arbeidsplassen.nav.no") ? "NAV" :
-          applyUrl.includes("webcruiter.com") ? "Webcruiter" :
-          job.apply_options?.[0]?.title || "Jobb";
 
         funn.push({
           id: makeId(applyUrl, job.title),
-          signalType: "Utlyst stilling",
-          kategori: "stilling",
-          title: job.title,
-          company: job.company_name || undefined,
-          location: job.location || geo,
-          url: applyUrl,
+          signalType: "Utlyst stilling", kategori: "stilling",
+          title: job.title, company: job.company_name || undefined,
+          location: job.location || geo, url: applyUrl,
           beskrivelse: job.description?.slice(0, 300) || undefined,
-          kilde: "Google Jobs",
-          kildeNavn,
-          funnetDato: new Date().toISOString(),
+          kilde: "Google Jobs", kildeNavn: kildenavnFraUrl(applyUrl),
+          funnetDato: now,
         });
       }
     }
-    console.log("Google Jobs stillinger:", funn.filter((f) => f.kilde === "Google Jobs").length);
-
-  } else if (webEnabled) {
-    // ── Brave Search fallback (upålitelig for Finn/LinkedIn, men gratis) ────────
-    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
-    const iÅr = new Date().getFullYear();
-
-    const stillingsSøk = [
-      `site:finn.no/job "${søkTerm}" "${geo}" ${iÅr}`,
-      `site:finn.no/job "${søkTerm}"`,
-      `site:arbeidsplassen.nav.no/stillinger "${søkTerm}"`,
-      `site:linkedin.com/jobs/view "${søkTerm}" "${geo}"`,
-      `site:linkedin.com/jobs/view "${søkTerm}" Norway`,
-    ];
-
-    const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
-    const burlPw = (q: string) =>
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=8&country=NO&freshness=pw`;
-
-    const stillingsResultater = await Promise.all(
-      stillingsSøk.map((q) =>
-        fetch(burlPw(q), { headers: braveHdr, cache: "no-store" })
-          .then((r) => (r.ok ? (r.json() as Promise<{ web?: { results?: unknown[] } }>) : null))
-          .catch(() => null)
-      )
-    );
-
-    for (const data of stillingsResultater) {
-      if (!data) continue;
-      for (const item of (data.web?.results ?? []).slice(0, 5)) {
-        const it = item as Record<string, unknown>;
-        const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
-        const url   = typeof it.url   === "string" ? it.url.trim() : "";
-        const desc  = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
-
-        if (!title || title.length < 10 || !url) continue;
-        if (!erGyldigStillingURL(url)) continue;
-        if (erSøkeside(url)) continue;
-
-        const company  = extractCompany(title, url);
-        const erFinn   = url.includes("finn.no");
-        const erNAV    = url.includes("arbeidsplassen.nav.no");
-        const erWC     = url.includes("webcruiter.com");
-        const erLI     = url.includes("linkedin.com");
-        const kildeNavn = erFinn ? "Finn.no" : erNAV ? "NAV" : erWC ? "Webcruiter" : erLI ? "LinkedIn" : "Karriere";
-
-        funn.push({
-          id: makeId(url, title),
-          signalType: "Utlyst stilling",
-          kategori: "stilling",
-          title,
-          company: company || undefined,
-          url,
-          location: geo,
-          beskrivelse: desc || undefined,
-          deadline: trekkUtFrist(desc),
-          kilde: kildeNavn,
-          kildeNavn,
-          funnetDato: new Date().toISOString(),
-        });
-      }
-    }
-    console.log("Brave stillinger:", funn.filter((f) => f.kategori === "stilling" && f.kilde !== "NAV").length);
+    console.log("Google Jobs:", funn.filter(f => f.kilde === "Google Jobs").length);
   }
 
-  // ── Del 2: LinkedIn + multi-kilde parallell søk ──────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEL 2 — LinkedIn-innlegg + karrieresider (jobber ikke på NAV/Finn)
+  // ─────────────────────────────────────────────────────────────────────────
   if (webEnabled) {
-    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
-    const geo = p.geography || "Oslo";
-    const søkTerm = p.seeking.split(" ")[0] || sokeord;
-
-    const iÅr = new Date().getFullYear();
-    const forrigeÅr = iÅr - 1;
+    const braveHdr = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
+    const burl     = (q: string) => `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
 
     const linkedinSøk = [
-      `site:linkedin.com/jobs/view "${søkTerm}" "${geo}" ${iÅr} OR ${forrigeÅr}`,
-      `site:linkedin.com/jobs/view "${søkTerm}" Norway ${iÅr} OR ${forrigeÅr}`,
-      `"${søkTerm}" "vi søker" OR "ledig stilling" site:linkedin.com ${iÅr}`,
-      `"${søkTerm}" site:finn.no/job ${iÅr} OR ${forrigeÅr}`,
-      `"${søkTerm}" site:webcruiter.com ${iÅr} OR ${forrigeÅr}`,
+      `site:linkedin.com/posts "${søkTerm}" "søker" OR "ledig" OR "vi ansetter" ${iÅr}`,
+      `site:linkedin.com "${bransje}" "stilling" OR "rolle" "${geo}" ${iÅr}`,
+      `"careers." OR "jobs." "${søkTerm}" "${geo}" ${iÅr} -site:finn.no -site:nav.no`,
+      ...selskaper.slice(0, 4).map(s => `"${s}" ansetter OR stilling OR hiring site:linkedin.com OR site:${s.toLowerCase().replace(/\s+/g, "")}.no`),
     ];
 
-    const selskapsSøk = selskaper.slice(0, 5).map((navn) =>
-      `"${navn}" ansetter OR stilling OR jobb site:linkedin.com OR site:finn.no OR site:webcruiter.com`
-    );
-
-    const alleSøk = [...linkedinSøk, ...selskapsSøk];
-
-    const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
-    const burl = (q: string) =>
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
-
-    const søkResultater = await Promise.all(
-      alleSøk.map((query) =>
-        fetch(burl(query), { headers: braveHdr, cache: "no-store" })
-          .then((r) => (r.ok ? (r.json() as Promise<{ web?: { results?: unknown[] } }>) : null))
+    const linkedinData = await Promise.all(
+      linkedinSøk.map(q =>
+        fetch(burl(q), { headers: braveHdr, cache: "no-store" })
+          .then(r => r.ok ? r.json() as Promise<{ web?: { results?: unknown[] } }> : null)
           .catch(() => null)
       )
     );
 
-    for (const data of søkResultater) {
+    for (const data of linkedinData) {
       if (!data) continue;
       for (const item of (data.web?.results ?? []).slice(0, 3)) {
-        const it = item as Record<string, unknown>;
-        const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
-        const url = typeof it.url === "string" ? it.url.trim() : "";
-        if (!title || title.length < 10 || !url) continue;
-
-        const erLinkedIn = url.includes("linkedin.com");
-        const erFinn = url.includes("finn.no");
-        const erWebcruiter = url.includes("webcruiter.com");
-        if (erLinkedIn && url.includes("/in/")) continue;
-        if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
-
-        const desc = typeof it.description === "string"
-          ? stripHtml(it.description).slice(0, 300)
-          : "";
-
-        const gamleÅrstall = ["2022", "2021", "2020", "2019", "2018", "2017"];
-        if (gamleÅrstall.some((år) => (title + " " + desc).includes(år))) continue;
-
-        const tekst = `${title} ${desc}`.toLowerCase();
-        const signalOrd = ["funding", "investering", "vekst", "ekspanderer", "ny ceo", "ny cfo", "millioner"];
-        const erSignal = signalOrd.some((s) => tekst.includes(s));
-
-        const kildeNavn = erLinkedIn ? "LinkedIn" : erFinn ? "Finn.no" : erWebcruiter ? "Webcruiter" : "Nett";
-        const signalType: ScannerFunn["signalType"] = erLinkedIn
-          ? "LinkedIn"
-          : erFinn || erWebcruiter
-            ? "Utlyst stilling"
-            : "Nyhet";
-        const kategori: ScannerKategori = erSignal ? "signal" : "stilling";
-
-        // Forkast stillinger fra ugyldig kilde eller søkesider
-        if (kategori === "stilling" && !erGyldigStillingURL(url)) continue;
-        if (erSøkeside(url)) continue;
-
-        const company = kategori === "stilling" ? extractCompany(title, url) : undefined;
-
-        funn.push({
-          id: makeId(url, title),
-          signalType,
-          kategori,
-          title,
-          company: company || undefined,
-          url,
-          location: geo || undefined,
-          beskrivelse: desc || undefined,
-          kilde: kildeNavn,
-          kildeNavn,
-          funnetDato: new Date().toISOString(),
-        });
-      }
-    }
-  }
-
-  // ── Del 2b: LinkedIn-innlegg og bedriftskarrieresider ───────────────────────
-  // Fanger jobber som aldri når NAV/Finn — direkte fra bedriftskontoer og byråer
-  if (webEnabled) {
-    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
-    const bransje = p.industry || sokeord;
-
-    const linkedinBedriftsSøk = [
-      `site:linkedin.com/posts "${søkTerm}" "søker" OR "ledig" OR "vi ansetter" 2026`,
-      `site:linkedin.com "${bransje}" "stilling" OR "rolle" "${geo}" 2026`,
-      `"careers." OR "jobs." "${søkTerm}" "${geo}" 2026 -site:finn.no -site:nav.no`,
-    ];
-
-    const braveHdr2b = { Accept: "application/json", "X-Subscription-Token": braveKey };
-    const burl2b = (q: string) =>
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
-
-    const bedriftsResultater = await Promise.all(
-      linkedinBedriftsSøk.map((q) =>
-        fetch(burl2b(q), { headers: braveHdr2b, cache: "no-store" })
-          .then((r) => (r.ok ? (r.json() as Promise<{ web?: { results?: unknown[] } }>) : null))
-          .catch(() => null)
-      )
-    );
-
-    const JOBB_ORD = ["søker", "ledig", "ansetter", "stilling", "rolle", "hiring", "vi ser etter", "utlyser"];
-
-    for (const data of bedriftsResultater) {
-      if (!data) continue;
-      for (const item of (data.web?.results ?? []).slice(0, 3)) {
-        const it = item as Record<string, unknown>;
+        const it    = item as Record<string, unknown>;
         const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
         const url   = typeof it.url   === "string" ? it.url.trim() : "";
         const desc  = typeof it.description === "string" ? stripHtml(it.description).slice(0, 200) : "";
 
         if (!title || title.length < 10 || !url) continue;
-        if (url.includes("linkedin.com/in/")) continue;           // profil-sider
-        if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
+        if (url.includes("linkedin.com/in/")) continue;
+        if (NON_JOB_DOMAINS.some(d => url.includes(d))) continue;
+        if (!JOBB_ORD.some(o => (title + " " + desc).toLowerCase().includes(o))) continue;
 
-        // Krev jobb-relatert innhold i tittel eller beskrivelse
-        const tekst = (title + " " + desc).toLowerCase();
-        if (!JOBB_ORD.some((o) => tekst.includes(o))) continue;
-
-        const erLinkedIn = url.includes("linkedin.com");
-        const erCareer   = url.includes("careers.") || url.includes("/careers") || url.includes("jobs.");
-        const company    = extractCompany(title, url);
-        const kildeNavn  = erLinkedIn ? "LinkedIn" : erCareer ? "Karriereside" : "Nett";
+        const gamleÅr = ["2022","2021","2020","2019","2018","2017"];
+        if (gamleÅr.some(å => (title + desc).includes(å))) continue;
 
         funn.push({
-          id: makeId(url, title),
-          signalType: erLinkedIn ? "LinkedIn" : "Utlyst stilling",
-          kategori: "stilling",
-          title,
-          company: company || undefined,
-          url,
-          location: geo,
-          beskrivelse: desc || undefined,
-          kilde: kildeNavn,
-          kildeNavn,
-          funnetDato: new Date().toISOString(),
+          id: makeId(url, title), signalType: "LinkedIn", kategori: "stilling",
+          title, company: extractCompany(title, url) || undefined,
+          location: geo, url, beskrivelse: desc || undefined,
+          kilde: kildenavnFraUrl(url), kildeNavn: kildenavnFraUrl(url),
+          funnetDato: now,
         });
       }
     }
-    console.log("LinkedIn-innlegg/karrieresider:", funn.filter((f) => f.kildeNavn === "Karriereside" || (f.kildeNavn === "LinkedIn" && f.kilde === "LinkedIn")).length);
+    console.log("LinkedIn/karriere:", funn.filter(f => f.kildeNavn === "LinkedIn" || f.kildeNavn === "Karriereside").length);
   }
 
-  // ── Del 3: Fire parallelle signalsøk ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEL 3 — Signaler (funding, ny ledelse, vekst) — kun fra nyhetsdomener
+  // ─────────────────────────────────────────────────────────────────────────
   if (webEnabled) {
-    const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
-    const bransje = p.industry || "regnskap";
-    const geo = p.geography || "Oslo";
-
-    const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
-    const burl = (q: string) =>
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
-
-    // Nyhetsdomener brukes direkte i søkene for garantert kvalitet
-    const nyhetsSite = "site:e24.no OR site:dn.no OR site:finansavisen.no OR site:nrk.no OR site:shifter.io OR site:tu.no";
+    const braveHdr = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
+    const burl     = (q: string) => `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
+    const nyhetsSite = "site:e24.no OR site:dn.no OR site:finansavisen.no OR site:nrk.no OR site:shifter.io";
 
     try {
       const [fundingRes, lederRes, vekstRes, bransjeRes] = await Promise.all([
-        fetch(burl(`${bransje} selskap "henter" OR "funding" OR "investering" millioner Norge 2026 ${nyhetsSite}`), { headers: braveHdr }),
-        fetch(burl(`${bransje} "ny direktør" OR "ny CEO" OR "ny CFO" OR "ny konserndirektør" Norge 2026 ${nyhetsSite}`), { headers: braveHdr }),
-        fetch(burl(`${bransje} selskap "ekspanderer" OR "vekst" OR "ansetter" Norge 2026 ${nyhetsSite}`), { headers: braveHdr }),
-        fetch(burl(`${bransje} bransje Norge markedsutvikling nyheter 2026 ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} selskap "henter" OR "funding" OR "investering" millioner Norge ${iÅr} ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} "ny direktør" OR "ny CEO" OR "ny CFO" OR "ny konserndirektør" Norge ${iÅr} ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} selskap "ekspanderer" OR "vekst" OR "ansetter" Norge ${iÅr} ${nyhetsSite}`), { headers: braveHdr }),
+        fetch(burl(`${bransje} bransje Norge markedsutvikling nyheter ${iÅr} ${nyhetsSite}`), { headers: braveHdr }),
       ]);
 
-      const signalTyper: {
-        res: Response;
-        subtype: import("@/lib/scanner-types").SignalSubtype;
-        relevans: string;
-      }[] = [
+      type SignalSubtype = import("@/lib/scanner-types").SignalSubtype;
+      const signalTyper: { res: Response; subtype: SignalSubtype; relevans: string }[] = [
         { res: fundingRes,  subtype: "funding",      relevans: "Selskaper som henter kapital ansetter typisk innen 60–90 dager." },
         { res: lederRes,    subtype: "ny-ledelse",   relevans: "Ny leder bygger alltid team i løpet av de første 60 dagene."    },
         { res: vekstRes,    subtype: "vekst",        relevans: "Vekstselskaper ansetter før de lyser ut stillinger offentlig."   },
@@ -555,77 +258,51 @@ export async function POST(request: Request) {
       for (const { res, subtype, relevans } of signalTyper) {
         if (!res.ok) continue;
         const data = (await res.json()) as { web?: { results?: unknown[] } };
-        let antall = 0;
+        let n = 0;
         for (const item of data.web?.results ?? []) {
-          if (antall >= 3) break;
-          const it = item as Record<string, unknown>;
+          if (n >= 3) break;
+          const it    = item as Record<string, unknown>;
           const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
           const url   = typeof it.url   === "string" ? it.url.trim() : "";
           if (!title || title.length < 10 || !url) continue;
-          if (url.includes("linkedin.com")) continue;
-          if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
+          if (["finn.no","arbeidsplassen.nav.no","webcruiter.com","linkedin.com/in/"].some(d => url.includes(d))) continue;
+          if (NON_JOB_DOMAINS.some(d => url.includes(d))) continue;
 
-          // Skip jobblistingdomener fra signal-søk (disse er stillinger, ikke signaler)
-          const JOBB_DOMENER = ["arbeidsplassen.nav.no", "finn.no", "webcruiter.com", "jobbsafari.no", "karriere.no"];
-          if (JOBB_DOMENER.some((d) => url.includes(d))) continue;
-
-          const desc = typeof it.description === "string"
-            ? stripHtml(it.description).slice(0, 300)
-            : "";
-
-          // Klassifiser som bransjenyhet hvis kilden er en nyhetsside
-          const erNyhetsKilde = NYHETSDOMENER.some((d) => url.includes(d));
-          const faktiskSubtype = erNyhetsKilde ? "bransjenyhet" : subtype;
-
-          // For funding/ledelse/vekst: krev at signal-ord finnes i tittelen
+          const erNyhetsKilde = NYHETSDOMENER.some(d => url.includes(d));
+          const faktiskSubtype: SignalSubtype = erNyhetsKilde ? "bransjenyhet" : subtype;
           if (faktiskSubtype !== "bransjenyhet") {
-            const SIGNAL_ORD_TITTEL = [
-              "funding", "kapital", "investering", "direktør", "ceo", "cfo",
-              "konserndirektør", "vekst", "ekspanderer", "henter", "millioner", "kjøper",
-            ];
-            if (!SIGNAL_ORD_TITTEL.some((o) => title.toLowerCase().includes(o))) continue;
+            const SIGNAL_ORD = ["funding","kapital","investering","direktør","ceo","cfo","vekst","ekspanderer","henter","millioner"];
+            if (!SIGNAL_ORD.some(o => title.toLowerCase().includes(o))) continue;
           }
 
+          const desc = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
           funn.push({
-            id: makeId(url, title),
-            signalType: "Nyhet",
-            kategori: "signal",
-            signalSubtype: faktiskSubtype,
-            relevansForKandidat: relevans,
-            title,
-            url,
-            location: geo || undefined,
-            beskrivelse: desc || undefined,
-            kilde: `Brave Search (${faktiskSubtype})`,
-            funnetDato: new Date().toISOString(),
+            id: makeId(url, title), signalType: "Nyhet", kategori: "signal",
+            signalSubtype: faktiskSubtype, relevansForKandidat: relevans,
+            title, url, location: geo || undefined, beskrivelse: desc || undefined,
+            kilde: `Brave (${faktiskSubtype})`, funnetDato: now,
           });
-          antall++;
+          n++;
         }
       }
-      console.log("Signal-funn:", funn.filter((f) => f.kategori === "signal").length);
-    } catch (e) {
-      warnings.push(`Signalsøk: ${e instanceof Error ? e.message : "feil"}`);
-    }
+    } catch (e) { warnings.push(`Signalsøk: ${e instanceof Error ? e.message : "feil"}`); }
+    console.log("Signaler:", funn.filter(f => f.kategori === "signal").length);
   }
 
-  console.log("NAV:", funn.filter((f) => f.kildeNavn === "NAV").length);
-  console.log("Finn.no:", funn.filter((f) => f.kildeNavn === "Finn.no").length);
-  console.log("LinkedIn:", funn.filter((f) => f.kildeNavn === "LinkedIn").length);
-  console.log("Webcruiter:", funn.filter((f) => f.kildeNavn === "Webcruiter").length);
-  console.log("Totalt:", funn.length);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Dedup og returner
+  // ─────────────────────────────────────────────────────────────────────────
+  console.log("NAV:", funn.filter(f => f.kildeNavn === "NAV").length);
+  console.log("Google Jobs:", funn.filter(f => f.kilde === "Google Jobs").length);
+  console.log("LinkedIn:", funn.filter(f => f.kildeNavn === "LinkedIn").length);
+  console.log("Signaler:", funn.filter(f => f.kategori === "signal").length);
+  console.log("Totalt (før dedup):", funn.length);
 
   const seen = new Set<string>();
-  const deduped = funn.filter((f) => {
-    if (seen.has(f.url)) return false;
-    seen.add(f.url);
-    return true;
-  });
+  const deduped = funn.filter(f => { if (seen.has(f.url)) return false; seen.add(f.url); return true; });
 
   return NextResponse.json({
-    funn: deduped,
-    warnings,
-    scannedAt: new Date().toISOString(),
-    webEnabled,
-    webScanningDisabled: !webEnabled,
+    funn: deduped, warnings,
+    scannedAt: now, webEnabled, webScanningDisabled: !webEnabled,
   });
 }
