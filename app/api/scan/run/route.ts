@@ -228,11 +228,82 @@ export async function POST(request: Request) {
     warnings.push(`NAV: ${e instanceof Error ? e.message : "feil"}`);
   }
 
-  // ── Del 1: Presisjons-stillingssøk (site:finn.no/job, NAV, Webcruiter) ──────
-  if (webEnabled) {
+  // ── Del 1: Stillinger — SerpAPI Google Jobs (primær) eller Brave (fallback) ─
+  const geo = p.geography || "Oslo";
+  const søkTerm = p.seeking.split(" ")[0] || sokeord;
+
+  if (process.env.SERPAPI_API_KEY) {
+    // ── Google Jobs via SerpAPI (gir direkte Finn.no/LinkedIn/NAV-lenker) ──────
+    const serpKey = process.env.SERPAPI_API_KEY;
+
+    type ApplyOption = { title: string; link: string };
+    type GoogleJob = {
+      title: string;
+      company_name?: string;
+      location?: string;
+      description?: string;
+      detected_extensions?: { posted_at?: string; schedule_type?: string };
+      apply_options?: ApplyOption[];
+    };
+
+    const queries = [
+      `${p.seeking} ${geo}`,
+      `${p.seeking} Norge`,
+    ];
+
+    const serpResultater = await Promise.all(
+      queries.map((q) =>
+        fetch(
+          `https://serpapi.com/search.json?engine=google_jobs&q=${encodeURIComponent(q)}&location=${encodeURIComponent(geo + ", Norway")}&hl=no&gl=no&api_key=${serpKey}`,
+          { cache: "no-store" }
+        )
+          .then((r) => (r.ok ? (r.json() as Promise<{ jobs_results?: GoogleJob[] }>) : null))
+          .catch(() => null)
+      )
+    );
+
+    for (const data of serpResultater) {
+      if (!data) continue;
+      for (const job of data.jobs_results ?? []) {
+        if (!job.title) continue;
+
+        // Velg beste apply-lenke: foretrekk Finn → LinkedIn → NAV → første
+        const applyUrl =
+          job.apply_options?.find((o) => o.link.includes("finn.no"))?.link ||
+          job.apply_options?.find((o) => o.link.includes("linkedin.com/jobs"))?.link ||
+          job.apply_options?.find((o) => o.link.includes("arbeidsplassen.nav.no"))?.link ||
+          job.apply_options?.[0]?.link ||
+          "";
+
+        if (!applyUrl) continue;
+
+        const kildeNavn =
+          applyUrl.includes("finn.no") ? "Finn.no" :
+          applyUrl.includes("linkedin.com") ? "LinkedIn" :
+          applyUrl.includes("arbeidsplassen.nav.no") ? "NAV" :
+          applyUrl.includes("webcruiter.com") ? "Webcruiter" :
+          job.apply_options?.[0]?.title || "Jobb";
+
+        funn.push({
+          id: makeId(applyUrl, job.title),
+          signalType: "Utlyst stilling",
+          kategori: "stilling",
+          title: job.title,
+          company: job.company_name || undefined,
+          location: job.location || geo,
+          url: applyUrl,
+          beskrivelse: job.description?.slice(0, 300) || undefined,
+          kilde: "Google Jobs",
+          kildeNavn,
+          funnetDato: new Date().toISOString(),
+        });
+      }
+    }
+    console.log("Google Jobs stillinger:", funn.filter((f) => f.kilde === "Google Jobs").length);
+
+  } else if (webEnabled) {
+    // ── Brave Search fallback (upålitelig for Finn/LinkedIn, men gratis) ────────
     const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
-    const geo = p.geography || "Oslo";
-    const søkTerm = p.seeking.split(" ")[0] || sokeord;
     const iÅr = new Date().getFullYear();
 
     const stillingsSøk = [
@@ -241,7 +312,6 @@ export async function POST(request: Request) {
       `site:arbeidsplassen.nav.no/stillinger "${søkTerm}"`,
       `site:linkedin.com/jobs/view "${søkTerm}" "${geo}"`,
       `site:linkedin.com/jobs/view "${søkTerm}" Norway`,
-      `"søknadsfrist" "${søkTerm}" "${geo}" ${iÅr} -site:youtube.com -site:facebook.com`,
     ];
 
     const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
@@ -261,14 +331,13 @@ export async function POST(request: Request) {
       for (const item of (data.web?.results ?? []).slice(0, 5)) {
         const it = item as Record<string, unknown>;
         const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
-        const url   = typeof it.url   === "string" ? it.url.trim()   : "";
+        const url   = typeof it.url   === "string" ? it.url.trim() : "";
         const desc  = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
 
         if (!title || title.length < 10 || !url) continue;
         if (!erGyldigStillingURL(url)) continue;
         if (erSøkeside(url)) continue;
 
-        const frist    = trekkUtFrist(desc);
         const company  = extractCompany(title, url);
         const erFinn   = url.includes("finn.no");
         const erNAV    = url.includes("arbeidsplassen.nav.no");
@@ -283,16 +352,16 @@ export async function POST(request: Request) {
           title,
           company: company || undefined,
           url,
-          location: geo || undefined,
+          location: geo,
           beskrivelse: desc || undefined,
-          deadline: frist,
+          deadline: trekkUtFrist(desc),
           kilde: kildeNavn,
           kildeNavn,
           funnetDato: new Date().toISOString(),
         });
       }
     }
-    console.log("Stillinger (Del 1):", funn.filter((f) => f.kategori === "stilling").length);
+    console.log("Brave stillinger:", funn.filter((f) => f.kategori === "stilling" && f.kilde !== "NAV").length);
   }
 
   // ── Del 2: LinkedIn + multi-kilde parallell søk ──────────────────────────
