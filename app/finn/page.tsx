@@ -18,16 +18,21 @@ import type { ScannerFunn, SignalSubtype } from "@/lib/scanner-types";
 import type { PipelineKontakt } from "@/lib/pipeline-types";
 import type { SelskapKort, UserProfile } from "@/lib/types";
 import { grupperPerSelskap, beregnMatchScore } from "@/lib/grupperResultater";
+import { saveUserProfile } from "@/lib/client-storage";
+import { saveSelskaper } from "@/lib/scanner-storage";
 
 type Filter = "alle" | "har-stilling" | "har-signal" | "fulgt";
 
 const SIGNAL_META: Record<SignalSubtype, { label: string; timing: string; cls: string }> = {
-  funding:      { label: "Funding",      timing: "Ansetter typisk innen 60 dager.",       cls: "bg-orange-100 text-orange-700" },
-  "ny-ledelse": { label: "Ny ledelse",   timing: "Ny leder bygger team nå.",              cls: "bg-violet-100 text-violet-700" },
-  vekst:        { label: "Vekst",        timing: "Handle innen 2 uker.",                  cls: "bg-emerald-100 text-emerald-700" },
-  bransje:      { label: "Bransjenyhet", timing: "Hold øye med utviklingen.",             cls: "bg-blue-100 text-blue-700"     },
-  ansetter:     { label: "Ansetter",     timing: "Handle nå — stillingen lyses snart ut.", cls: "bg-emerald-100 text-emerald-700" },
+  funding:       { label: "Funding",      timing: "Ansetter typisk innen 60 dager.",        cls: "bg-orange-100 text-orange-700"  },
+  "ny-ledelse":  { label: "Ny ledelse",   timing: "Ny leder bygger team nå.",               cls: "bg-violet-100 text-violet-700"  },
+  vekst:         { label: "Vekst",        timing: "Handle innen 2 uker.",                   cls: "bg-emerald-100 text-emerald-700"},
+  bransjenyhet:  { label: "Bransjenyhet", timing: "Hold øye med markedsutviklingen.",       cls: "bg-blue-100 text-blue-700"      },
+  ansetter:      { label: "Ansetter",     timing: "Handle nå — stillingen lyses snart ut.", cls: "bg-emerald-100 text-emerald-700"},
 };
+
+// Subtypes som vises i signal-kolonnen på selskapskort (ikke bransjenyhet)
+const SIGNAL_SUBTYPES_PÅ_KORT: SignalSubtype[] = ["funding", "ny-ledelse", "vekst", "ansetter"];
 
 function KildePill({ kildeNavn }: { kildeNavn?: string }) {
   if (!kildeNavn || kildeNavn === "Nett") return null;
@@ -75,11 +80,16 @@ export default function FinnPage() {
   const [webScanningDisabled, setWebScanningDisabled] = useState(false);
   const [kontaktmeldinger, setKontaktmeldinger] = useState<Map<string, string>>(new Map());
   const [generererKontakt, setGenerererKontakt] = useState<Set<string>>(new Set());
+  const [fulgtSelskaper, setFulgtSelskaper] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    setProfil(getStoredUserProfile());
+    const p = getStoredUserProfile();
+    setProfil(p);
     setSist(getSistScan());
     setFunn(loadScannerFunn());
+    if (p?.selskaper) {
+      setFulgtSelskaper(new Set(p.selskaper.map((s) => s.toLowerCase())));
+    }
   }, []);
 
   useEffect(() => {
@@ -182,6 +192,20 @@ export default function FinnPage() {
     }
   }
 
+  function toggleFølg(selskapsnavn: string) {
+    const p = getStoredUserProfile();
+    if (!p) return;
+    const key = selskapsnavn.toLowerCase();
+    const erFulgt = fulgtSelskaper.has(key);
+    const nyListe = erFulgt
+      ? p.selskaper.filter((s) => s.toLowerCase() !== key)
+      : [...p.selskaper, selskapsnavn];
+    p.selskaper = nyListe;
+    saveUserProfile(p);
+    saveSelskaper(nyListe);
+    setFulgtSelskaper(new Set(nyListe.map((s) => s.toLowerCase())));
+  }
+
   function velgOgGa(kort: SelskapKort) {
     const f = kort.stillinger[0];
     if (!f) return;
@@ -190,7 +214,13 @@ export default function FinnPage() {
   }
 
   // ── Gruppering ──────────────────────────────────────────────────────────────
-  const alleSelskaper = useMemo(() => grupperPerSelskap(funn), [funn]);
+  const alleSelskaper = useMemo(
+    () => grupperPerSelskap(funn).map((s) => ({
+      ...s,
+      erFulgt: fulgtSelskaper.has(s.navn.toLowerCase()),
+    })),
+    [funn, fulgtSelskaper],
+  );
 
   const filtrerte = useMemo(() => {
     if (filter === "har-stilling") return alleSelskaper.filter((s) => s.stillinger.length > 0);
@@ -213,6 +243,11 @@ export default function FinnPage() {
     if (vekst     > 0) return `${vekst} vekstsignaler i markedet ditt denne uken.`;
     return null;
   }, [funn]);
+
+  const markedsnyheter = useMemo(
+    () => funn.filter((f) => f.signalSubtype === "bransjenyhet"),
+    [funn],
+  );
 
   const erHøySesong = useMemo(() => [1, 2, 3, 4, 8, 9, 10].includes(new Date().getMonth() + 1), []);
 
@@ -392,6 +427,17 @@ export default function FinnPage() {
                     <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
                       {score}%
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleFølg(kort.navn)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                        kort.erFulgt
+                          ? "bg-amber-100 text-amber-700"
+                          : "border border-zinc-200 bg-white text-zinc-400 hover:text-zinc-700"
+                      }`}
+                    >
+                      {kort.erFulgt ? "★ Følger" : "☆ Følg"}
+                    </button>
                   </div>
                 </div>
 
@@ -435,15 +481,19 @@ export default function FinnPage() {
                     )}
                   </div>
 
-                  {/* Kol 2 — Signal */}
+                  {/* Kol 2 — Signal (kun funding/ny-ledelse/vekst/ansetter) */}
                   <div className="px-3 py-3">
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
                       Signal
                     </p>
-                    {kort.signaler.length === 0 ? (
+                    {kort.signaler.filter((s) =>
+                      !s.signalSubtype || SIGNAL_SUBTYPES_PÅ_KORT.includes(s.signalSubtype)
+                    ).length === 0 ? (
                       <p className="text-[11px] italic text-zinc-400">Ingen signaler</p>
                     ) : (
-                      kort.signaler.slice(0, 2).map((s) => {
+                      kort.signaler
+                        .filter((s) => !s.signalSubtype || SIGNAL_SUBTYPES_PÅ_KORT.includes(s.signalSubtype))
+                        .slice(0, 2).map((s) => {
                         const meta = s.signalSubtype ? SIGNAL_META[s.signalSubtype] : null;
                         return (
                           <div key={s.id} className="mb-2 last:mb-0">
@@ -528,6 +578,46 @@ export default function FinnPage() {
             );
           })}
         </div>
+        {/* ── Markedsnyheter ────────────────────────────────────────────── */}
+        {markedsnyheter.length > 0 && (
+          <div className="mt-10">
+            <div className="mb-4 flex items-center gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                Markedsnyheter
+              </p>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+                {markedsnyheter.length}
+              </span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {markedsnyheter.map((n) => (
+                <a
+                  key={n.id}
+                  href={n.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3 transition hover:bg-zinc-50"
+                >
+                  <svg className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10l4 4v10a2 2 0 0 1-2 2z" />
+                    <line x1="9" y1="13" x2="15" y2="13" />
+                    <line x1="9" y1="17" x2="15" y2="17" />
+                  </svg>
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 text-sm font-medium text-zinc-800">{n.title}</p>
+                    {n.beskrivelse && (
+                      <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">{n.beskrivelse}</p>
+                    )}
+                    <p className="mt-1 text-[10px] text-zinc-400">
+                      {n.kilde} · {new Date(n.funnetDato).toLocaleDateString("nb-NO")}
+                    </p>
+                  </div>
+                  <span className="ml-auto shrink-0 text-xs text-zinc-400">↗</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

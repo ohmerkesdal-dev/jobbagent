@@ -26,6 +26,28 @@ const NON_JOB_DOMAINS = [
   "purehelp.no", "finansportalen.no", "sammenlign", "trustpilot",
 ];
 
+const GYLDIGE_STILLING_DOMENER = [
+  "finn.no/job",
+  "arbeidsplassen.nav.no/stillinger",
+  "webcruiter.com",
+  "jobbsafari.no",
+  "karriere.no",
+];
+
+const NYHETSDOMENER = [
+  "e24.no", "finansavisen.no", "nrk.no", "dn.no",
+  "dagbladet.no", "aftenposten.no", "vg.no",
+];
+
+function erGyldigStillingURL(url: string): boolean {
+  return GYLDIGE_STILLING_DOMENER.some((d) => url.includes(d));
+}
+
+function trekkUtFrist(desc: string): string | undefined {
+  const m = desc.match(/frist[:\s]+(\d{1,2}[.\s]\w+\s?\d{4})/i);
+  return m ? m[1].trim() : undefined;
+}
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").trim();
 }
@@ -85,53 +107,65 @@ export async function POST(request: Request) {
   const webEnabled = isWebScanEnabled();
   console.log("webEnabled:", webEnabled);
 
-  // ── Del 1: Finn.no via Brave Search ──────────────────────────────────────
+  // ── Del 1: Presisjons-stillingssøk (site:finn.no/job, NAV, Webcruiter) ──────
   if (webEnabled) {
     const braveKey = process.env.BRAVE_SEARCH_API_KEY!;
     const geo = p.geography || "Oslo";
     const søkTerm = p.seeking.split(" ")[0] || sokeord;
+    const iÅr = new Date().getFullYear();
 
-    const finnUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
-      `site:finn.no/job ${søkTerm} ${geo}`
-    )}&count=10&country=NO&freshness=pm`;
+    const stillingsSøk = [
+      `site:finn.no/job ${søkTerm} ${geo} ${iÅr}`,
+      `site:finn.no/job ${søkTerm}`,
+      `site:arbeidsplassen.nav.no/stillinger ${søkTerm}`,
+      `"søknadsfrist" "${søkTerm}" "${geo}" ${iÅr} -site:youtube.com -site:facebook.com`,
+    ];
 
-    try {
-      const finnRes = await fetch(finnUrl, {
-        headers: { Accept: "application/json", "X-Subscription-Token": braveKey },
-        cache: "no-store",
-      });
+    const braveHdr = { Accept: "application/json", "X-Subscription-Token": braveKey };
+    const burlPw = (q: string) =>
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=8&country=NO&freshness=pw`;
 
-      console.log("Finn.no Brave status:", finnRes.status);
-      if (finnRes.ok) {
-        const finnData = (await finnRes.json()) as { web?: { results?: unknown[] } };
-        for (const item of finnData.web?.results ?? []) {
-          const it = item as Record<string, unknown>;
-          const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
-          const desc = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
-          if (!title || title.length < 10) continue;
-          const url = typeof it.url === "string" ? it.url.trim() : "";
-          if (!url) continue;
-          funn.push({
-            id: makeId(url, title),
-            signalType: "Utlyst stilling",
-            kategori: "stilling",
-            title,
-            url,
-            location: geo || undefined,
-            beskrivelse: desc || undefined,
-            kilde: "Finn.no",
-            kildeNavn: "Finn.no",
-            funnetDato: new Date().toISOString(),
-          });
-        }
-        console.log("Finn.no stillinger:", funn.filter((f) => f.kildeNavn === "Finn.no").length);
-      } else {
-        warnings.push("Finn.no: Ingen treff akkurat nå.");
+    const stillingsResultater = await Promise.all(
+      stillingsSøk.map((q) =>
+        fetch(burlPw(q), { headers: braveHdr, cache: "no-store" })
+          .then((r) => (r.ok ? (r.json() as Promise<{ web?: { results?: unknown[] } }>) : null))
+          .catch(() => null)
+      )
+    );
+
+    for (const data of stillingsResultater) {
+      if (!data) continue;
+      for (const item of (data.web?.results ?? []).slice(0, 5)) {
+        const it = item as Record<string, unknown>;
+        const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
+        const url   = typeof it.url   === "string" ? it.url.trim()   : "";
+        const desc  = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
+
+        if (!title || title.length < 10 || !url) continue;
+        if (!erGyldigStillingURL(url)) continue;
+
+        const frist    = trekkUtFrist(desc);
+        const erFinn   = url.includes("finn.no");
+        const erNAV    = url.includes("arbeidsplassen.nav.no");
+        const erWC     = url.includes("webcruiter.com");
+        const kildeNavn = erFinn ? "Finn.no" : erNAV ? "NAV" : erWC ? "Webcruiter" : "Karriere";
+
+        funn.push({
+          id: makeId(url, title),
+          signalType: "Utlyst stilling",
+          kategori: "stilling",
+          title,
+          url,
+          location: geo || undefined,
+          beskrivelse: desc || undefined,
+          deadline: frist,
+          kilde: kildeNavn,
+          kildeNavn,
+          funnetDato: new Date().toISOString(),
+        });
       }
-    } catch (e) {
-      console.error("Finn.no feil:", e);
-      warnings.push(`Finn.no: ${e instanceof Error ? e.message : "ukjent feil"}`);
     }
+    console.log("Stillinger (Del 1):", funn.filter((f) => f.kategori === "stilling").length);
   }
 
   // ── Del 2: LinkedIn + multi-kilde parallell søk ──────────────────────────
@@ -202,6 +236,9 @@ export async function POST(request: Request) {
             : "Nyhet";
         const kategori: ScannerKategori = erSignal ? "signal" : "stilling";
 
+        // Forkast stillinger som ikke er fra godkjente stillingssider
+        if (kategori === "stilling" && !erGyldigStillingURL(url)) continue;
+
         funn.push({
           id: makeId(url, title),
           signalType,
@@ -241,10 +278,10 @@ export async function POST(request: Request) {
         subtype: import("@/lib/scanner-types").SignalSubtype;
         relevans: string;
       }[] = [
-        { res: fundingRes, subtype: "funding", relevans: "Selskaper som henter kapital ansetter typisk innen 60–90 dager." },
-        { res: lederRes, subtype: "ny-ledelse", relevans: "Ny leder bygger alltid team i løpet av de første 60 dagene." },
-        { res: vekstRes, subtype: "vekst", relevans: "Vekstselskaper ansetter før de lyser ut stillinger offentlig." },
-        { res: bransjeRes, subtype: "bransje", relevans: "Markedsbevegelser påvirker ansettelser i din bransje." },
+        { res: fundingRes,  subtype: "funding",      relevans: "Selskaper som henter kapital ansetter typisk innen 60–90 dager." },
+        { res: lederRes,    subtype: "ny-ledelse",   relevans: "Ny leder bygger alltid team i løpet av de første 60 dagene."    },
+        { res: vekstRes,    subtype: "vekst",        relevans: "Vekstselskaper ansetter før de lyser ut stillinger offentlig."   },
+        { res: bransjeRes,  subtype: "bransjenyhet", relevans: "Markedsbevegelser påvirker ansettelser i din bransje."           },
       ];
 
       for (const { res, subtype, relevans } of signalTyper) {
@@ -255,24 +292,29 @@ export async function POST(request: Request) {
           if (antall >= 3) break;
           const it = item as Record<string, unknown>;
           const title = typeof it.title === "string" ? stripHtml(it.title.trim()) : "";
-          const url = typeof it.url === "string" ? it.url.trim() : "";
+          const url   = typeof it.url   === "string" ? it.url.trim() : "";
           if (!title || title.length < 10 || !url) continue;
           if (url.includes("linkedin.com")) continue;
           if (NON_JOB_DOMAINS.some((d) => url.includes(d))) continue;
           const desc = typeof it.description === "string"
             ? stripHtml(it.description).slice(0, 300)
             : "";
+
+          // Klassifiser som bransjenyhet hvis kilden er en nyhetsside
+          const erNyhetsKilde = NYHETSDOMENER.some((d) => url.includes(d));
+          const faktiskSubtype = erNyhetsKilde ? "bransjenyhet" : subtype;
+
           funn.push({
             id: makeId(url, title),
             signalType: "Nyhet",
             kategori: "signal",
-            signalSubtype: subtype,
+            signalSubtype: faktiskSubtype,
             relevansForKandidat: relevans,
             title,
             url,
             location: geo || undefined,
             beskrivelse: desc || undefined,
-            kilde: `Brave Search (${subtype})`,
+            kilde: `Brave Search (${faktiskSubtype})`,
             funnetDato: new Date().toISOString(),
           });
           antall++;

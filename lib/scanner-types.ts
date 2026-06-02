@@ -6,7 +6,7 @@ export type ScannerSignalType =
 
 export type ScannerKategori = "stilling" | "signal" | "person" | "nyhet";
 
-export type SignalSubtype = "funding" | "ny-ledelse" | "vekst" | "bransje" | "ansetter";
+export type SignalSubtype = "funding" | "ny-ledelse" | "vekst" | "bransjenyhet" | "ansetter";
 
 export type ScannerFunn = {
   id: string;
