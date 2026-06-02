@@ -17,7 +17,7 @@ import { addHoursToIso, newId, upsertKontakt } from "@/lib/pipeline-storage";
 import type { ScannerFunn, SignalSubtype } from "@/lib/scanner-types";
 import type { PipelineKontakt } from "@/lib/pipeline-types";
 import type { SelskapKort, UserProfile } from "@/lib/types";
-import { grupperPerSelskap, beregnMatchScore } from "@/lib/grupperResultater";
+import { grupperPerSelskap, beregnMatchScore, getUgrupperteStillinger, getSignalerFlat } from "@/lib/grupperResultater";
 import { saveUserProfile } from "@/lib/client-storage";
 import { saveSelskaper } from "@/lib/scanner-storage";
 
@@ -229,11 +229,6 @@ export default function FinnPage() {
     return alleSelskaper;
   }, [alleSelskaper, filter]);
 
-  // ── Summary stats ────────────────────────────────────────────────────────────
-  const totSelskaper  = alleSelskaper.length;
-  const totStillinger = useMemo(() => alleSelskaper.reduce((n, s) => n + s.stillinger.length, 0), [alleSelskaper]);
-  const totSignaler   = useMemo(() => alleSelskaper.reduce((n, s) => n + s.signaler.length, 0), [alleSelskaper]);
-
   const signalSammendrag = useMemo(() => {
     const funding   = funn.filter((f) => f.signalSubtype === "funding").length;
     const nyLedelse = funn.filter((f) => f.signalSubtype === "ny-ledelse").length;
@@ -248,6 +243,14 @@ export default function FinnPage() {
     () => funn.filter((f) => f.signalSubtype === "bransjenyhet"),
     [funn],
   );
+
+  const ugrupperteStillinger = useMemo(() => getUgrupperteStillinger(funn), [funn]);
+  const signalFlat = useMemo(() => getSignalerFlat(funn), [funn]);
+
+  // ── Summary stats ───────────────────────────────────────────────────────────
+  const totSelskaper  = alleSelskaper.length;
+  const totStillinger = alleSelskaper.reduce((n, s) => n + s.stillinger.length, 0) + ugrupperteStillinger.length;
+  const totSignaler   = signalFlat.length;
 
   const erHøySesong = useMemo(() => [1, 2, 3, 4, 8, 9, 10].includes(new Date().getMonth() + 1), []);
 
@@ -578,6 +581,74 @@ export default function FinnPage() {
             );
           })}
         </div>
+        {/* ── Stillinger uten kjent selskap (flat liste) ─────────────── */}
+        {ugrupperteStillinger.length > 0 && (
+          <div className="mt-10">
+            <div className="mb-4 flex items-center gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">Ledige stillinger</p>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{ugrupperteStillinger.length}</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {ugrupperteStillinger.map((f) => {
+                const d = f.deadline ? Math.ceil((new Date(f.deadline).getTime() - Date.now()) / 86_400_000) : null;
+                return (
+                  <div key={f.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                        <KildePill kildeNavn={f.kildeNavn} />
+                        {d !== null && (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${d <= 3 ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-500"}`}>
+                            {d <= 0 ? "Utløpt" : `${d}d igjen`}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-zinc-900 leading-snug">{f.title.replace(/\s*\|\s*(FINN\.no|NAV|Webcruiter|LinkedIn).*/i, "")}</p>
+                      {f.beskrivelse && <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500">{f.beskrivelse}</p>}
+                    </div>
+                    <a href={f.url} target="_blank" rel="noopener noreferrer"
+                      className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50">
+                      Se stilling ↗
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Signaler (flat liste) ───────────────────────────────────── */}
+        {signalFlat.length > 0 && (
+          <div className="mt-10">
+            <div className="mb-4 flex items-center gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">Markedssignaler</p>
+              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-600">{signalFlat.length}</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {signalFlat.map((f) => {
+                const meta = f.signalSubtype ? SIGNAL_META[f.signalSubtype] : null;
+                return (
+                  <div key={f.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                        {meta && (
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${meta.cls}`}>{meta.label}</span>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-zinc-900 leading-snug line-clamp-2">{f.title}</p>
+                      {f.beskrivelse && <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">{f.beskrivelse}</p>}
+                      {meta && <p className="mt-1 text-[10px] italic text-zinc-400">{meta.timing}</p>}
+                    </div>
+                    <a href={f.url} target="_blank" rel="noopener noreferrer"
+                      className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50">
+                      Les mer ↗
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Markedsnyheter ────────────────────────────────────────────── */}
         {markedsnyheter.length > 0 && (
           <div className="mt-10">

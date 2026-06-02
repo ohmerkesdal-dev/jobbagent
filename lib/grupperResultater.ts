@@ -9,31 +9,23 @@ function getKategori(f: ScannerFunn): ScannerKategori {
   return "nyhet";
 }
 
-function trekktUtSelskapsnavn(f: ScannerFunn): string {
-  if (f.company) return f.company;
-  const etterDash = f.title.split("–")[1]?.trim() ?? f.title.split("-")[1]?.trim();
-  return etterDash || f.title.slice(0, 40);
-}
-
-function nøkkelForFunn(f: ScannerFunn): string {
-  const company = f.company?.toLowerCase().trim();
-  if (company) return company;
-  const etterDash =
-    f.title.split("–")[1]?.trim().toLowerCase() ??
-    f.title.split("-")[1]?.trim().toLowerCase();
-  return etterDash || f.id;
-}
-
+/**
+ * Grupper kun funn der company er eksplisitt satt av scraperen.
+ * Stillinger uten company vises flatt (se getUgrupperteStillinger).
+ */
 export function grupperPerSelskap(resultater: ScannerFunn[]): SelskapKort[] {
   const selskapMap = new Map<string, SelskapKort>();
 
   for (const r of resultater) {
-    const nøkkel = nøkkelForFunn(r);
+    const company = r.company?.trim();
+    if (!company) continue; // hopp over funn uten kjent selskap
+
+    const nøkkel = company.toLowerCase();
 
     if (!selskapMap.has(nøkkel)) {
       selskapMap.set(nøkkel, {
         id: nøkkel,
-        navn: trekktUtSelskapsnavn(r),
+        navn: company,
         lokasjon: r.location,
         erFulgt: false,
         stillinger: [],
@@ -54,18 +46,26 @@ export function grupperPerSelskap(resultater: ScannerFunn[]): SelskapKort[] {
     }
   }
 
-  return (
-    Array.from(selskapMap.values())
-      // Kast oppføringer uten noe relevant innhold
-      .filter((s) => s.stillinger.length > 0 || s.signaler.length > 0)
-      // Sorter: stilling (×3) + signal (×2) + person (×1) = relevansScore
-      .sort((a, b) => {
-        const scoreA =
-          a.stillinger.length * 3 + a.signaler.length * 2 + a.personer.length;
-        const scoreB =
-          b.stillinger.length * 3 + b.signaler.length * 2 + b.personer.length;
-        return scoreB - scoreA;
-      })
+  return Array.from(selskapMap.values())
+    .filter((s) => s.stillinger.length > 0 || s.signaler.length > 0)
+    .sort((a, b) => {
+      const scoreA = a.stillinger.length * 3 + a.signaler.length * 2 + a.personer.length;
+      const scoreB = b.stillinger.length * 3 + b.signaler.length * 2 + b.personer.length;
+      return scoreB - scoreA;
+    });
+}
+
+/** Stillinger uten kjent selskap — vises som flat liste */
+export function getUgrupperteStillinger(resultater: ScannerFunn[]): ScannerFunn[] {
+  return resultater.filter(
+    (f) => getKategori(f) === "stilling" && !f.company?.trim(),
+  );
+}
+
+/** Alle signaler (funding, vekst, ny-ledelse, ansetter) — vises flatt */
+export function getSignalerFlat(resultater: ScannerFunn[]): ScannerFunn[] {
+  return resultater.filter(
+    (f) => getKategori(f) === "signal" && f.signalSubtype !== "bransjenyhet",
   );
 }
 

@@ -48,6 +48,31 @@ function trekkUtFrist(desc: string): string | undefined {
   return m ? m[1].trim() : undefined;
 }
 
+function extractCompany(title: string, url: string): string | undefined {
+  // LinkedIn: "Title at Company | LinkedIn"
+  if (url.includes("linkedin.com")) {
+    const m = title.match(/\bat\s+([^|]+?)\s*\|/i);
+    if (m?.[1]) {
+      const c = m[1].trim();
+      if (c.length >= 2 && c.length <= 70) return c;
+    }
+  }
+  // Fjern kilde-suffiks: "| FINN.no", "| Webcruiter" osv.
+  const clean = title
+    .replace(/\s*\|\s*(FINN\.no|Webcruiter|arbeidsplassen\.nav\.no|jobbsafari\.no|karriere\.no|NAV|LinkedIn Jobs?).*/i, "")
+    .trim();
+  // "Stillingstittel – Selskapsnavn" (em- eller en-dash)
+  const parts = clean.split(/\s+[–—]\s+/);
+  if (parts.length >= 2) {
+    const candidate = parts[parts.length - 1].trim();
+    const erJobbFragment = /^(vi søker|ledig|søker|bli |mulighetsrom|din |din, |ansvar|oppgaver)/i.test(candidate);
+    if (!erJobbFragment && candidate.length >= 2 && candidate.length <= 70) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").trim();
 }
@@ -143,8 +168,11 @@ export async function POST(request: Request) {
 
         if (!title || title.length < 10 || !url) continue;
         if (!erGyldigStillingURL(url)) continue;
+        // Finn søkesider er ikke individuelle annonser
+        if (url.includes("finn.no") && (url.includes("search") || url.includes("?q="))) continue;
 
         const frist    = trekkUtFrist(desc);
+        const company  = extractCompany(title, url);
         const erFinn   = url.includes("finn.no");
         const erNAV    = url.includes("arbeidsplassen.nav.no");
         const erWC     = url.includes("webcruiter.com");
@@ -155,6 +183,7 @@ export async function POST(request: Request) {
           signalType: "Utlyst stilling",
           kategori: "stilling",
           title,
+          company: company || undefined,
           url,
           location: geo || undefined,
           beskrivelse: desc || undefined,
@@ -238,12 +267,17 @@ export async function POST(request: Request) {
 
         // Forkast stillinger som ikke er fra godkjente stillingssider
         if (kategori === "stilling" && !erGyldigStillingURL(url)) continue;
+        // Forkast Finn søkesider
+        if (url.includes("finn.no") && (url.includes("search") || url.includes("?q="))) continue;
+
+        const company = kategori === "stilling" ? extractCompany(title, url) : undefined;
 
         funn.push({
           id: makeId(url, title),
           signalType,
           kategori,
           title,
+          company: company || undefined,
           url,
           location: geo || undefined,
           beskrivelse: desc || undefined,
