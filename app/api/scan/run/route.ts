@@ -195,12 +195,12 @@ export async function POST(request: Request) {
   // ──────────────────────────────────────────────────────────────────────────
   if (webEnabled) {
     const hdr  = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
-    const burl = (q: string) => `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pm`;
+    const burl = (q: string) => `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5&country=NO&freshness=pw`;
 
     const linkedinSøk = [
-      `site:linkedin.com/posts "${søk}" "søker" OR "ledig" OR "vi ansetter" ${iÅr}`,
-      `site:linkedin.com "${bransje}" "stilling" OR "rolle" "${geo}" ${iÅr}`,
-      `"careers." "${søk}" "${geo}" ${iÅr} -site:finn.no -site:nav.no -site:brreg.no`,
+      `site:linkedin.com/posts "${søk}" "søker" OR "vi ansetter" OR "ledig stilling" ${iÅr}`,
+      `site:linkedin.com "${bransje}" stilling ${geo} ${iÅr}`,
+      `"careers." "${bransje}" "${geo}" ${iÅr} -site:finn.no -site:nav.no`,
     ];
 
     const liRes = await Promise.all(
@@ -210,6 +210,8 @@ export async function POST(request: Request) {
       )
     );
 
+    const GYLDIGE_STILLING = ["finn.no","arbeidsplassen.nav.no","webcruiter.com","linkedin.com","careers."];
+
     for (const data of liRes) {
       if (!data) continue;
       for (const item of (data.web?.results ?? []).slice(0, 3)) {
@@ -218,13 +220,12 @@ export async function POST(request: Request) {
         const url   = typeof it.url   === "string" ? it.url.trim() : "";
         const desc  = typeof it.description === "string" ? stripHtml(it.description).slice(0, 200) : "";
         if (!title || title.length < 10 || !url) continue;
-        if (url.includes("linkedin.com/in/")) continue;
-        if (["proff.no","brreg.no","1881.no","gulesider.no"].some(d => url.includes(d))) continue;
+        if (!GYLDIGE_STILLING.some(d => url.includes(d))) continue;
         if (!JOBB_ORD.some(o => (title + " " + desc).toLowerCase().includes(o))) continue;
         funn.push({ id: makeId(url, title), signalType: "LinkedIn", kategori: "stilling",
           title, company: extractCompany(title, url) || undefined, location: geo,
           url, beskrivelse: desc || undefined,
-          kilde: kildeNav(url), kildeNavn: kildeNav(url), funnetDato: now });
+          kilde: kildeNav(url), kildeNavn: "LinkedIn", funnetDato: now });
       }
     }
   }
@@ -267,7 +268,8 @@ export async function POST(request: Request) {
           if (!NYHETSDOMENER.some(d => url.includes(d))) continue;
 
           const desc = typeof it.description === "string" ? stripHtml(it.description).slice(0, 300) : "";
-          const faktiskSubtype: ST = subtype;
+          const BRANSJENYHET_DOMENER = ["e24.no","finansavisen.no","nrk.no","dn.no","dagbladet.no"];
+          const faktiskSubtype: ST = BRANSJENYHET_DOMENER.some(d => url.includes(d)) ? "bransjenyhet" : subtype;
           if (faktiskSubtype !== "bransjenyhet") {
             const SW = ["funding","kapital","investering","direktør","ceo","cfo","vekst","ekspanderer","henter","millioner"];
             if (!SW.some(o => title.toLowerCase().includes(o))) continue;
