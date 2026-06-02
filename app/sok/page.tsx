@@ -82,7 +82,7 @@ export default function SokPage() {
   const bruktTags = [...pp.verdier, ...pp.arbeidsstil].slice(0, 6);
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] pb-24 pt-8">
+    <div className="min-h-screen bg-white pb-24 pt-8">
       <div className="mx-auto max-w-2xl px-4 sm:px-6">
         <h1 className="text-2xl font-medium text-zinc-950" style={{ letterSpacing: "-0.02em" }}>Søk smart</h1>
         <p className="mt-1 text-sm text-zinc-500">Generer et skreddersydd søknadsbrev basert på din profil.</p>

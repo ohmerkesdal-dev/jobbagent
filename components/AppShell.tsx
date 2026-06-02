@@ -38,12 +38,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-zinc-200 bg-[#f5f4f0]/95 backdrop-blur-sm">
-        <nav className="mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <Link href="/" className="text-sm font-semibold tracking-tight text-black">
+      <header className="sticky top-0 z-40 border-b border-zinc-100 bg-white/95 backdrop-blur-sm">
+        <nav className="mx-auto flex items-center justify-between px-5 py-3.5 sm:px-8">
+          <Link
+            href="/"
+            className="text-[15px] font-bold text-black"
+            style={{ letterSpacing: "-0.02em" }}
+          >
             Jobbagent
           </Link>
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {NAV_ITEMS.map((item) => {
               const active = isActive(item);
               const isPipeline = item.href === "/pipeline";
@@ -51,18 +55,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
                     active
-                      ? "rounded-[20px] bg-[#111] text-white"
-                      : "rounded-[20px] text-zinc-600 hover:bg-black/5 hover:text-black"
+                      ? "bg-zinc-950 text-white"
+                      : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
                   }`}
                 >
-                  <i className={`ti ${item.icon} text-[15px]`} />
+                  <i className={`ti ${item.icon} text-[14px]`} />
                   <span>{item.label}</span>
                   {isPipeline && pipelineVarsel > 0 && (
-                    <span className="relative flex h-2 w-2">
+                    <span className="relative flex h-1.5 w-1.5">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
                     </span>
                   )}
                 </Link>

@@ -88,7 +88,7 @@ export default function ResultatPage() {
 
   if (!result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f5f4f0] text-zinc-500">
+      <div className="flex min-h-screen items-center justify-center bg-white text-zinc-500">
         <p className="text-sm">Laster…</p>
       </div>
     );
@@ -97,7 +97,7 @@ export default function ResultatPage() {
   const pct = result.hiddenJobProbability;
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] text-zinc-950">
+    <div className="min-h-screen bg-white text-zinc-950">
       <div className="mx-auto max-w-3xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
         <Link
           href="/analyse"

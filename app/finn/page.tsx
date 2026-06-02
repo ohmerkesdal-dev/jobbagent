@@ -325,27 +325,33 @@ export default function FinnPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] pb-24 pt-8">
+    <div className="min-h-screen bg-white pb-24 pt-8">
       <div className="mx-auto max-w-3xl px-4 sm:px-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-medium text-zinc-950" style={{ letterSpacing: "-0.02em" }}>
-              Din feed
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+              Jobbagent
+            </p>
+            <h1
+              className="mt-2 font-semibold text-zinc-950"
+              style={{ fontSize: "clamp(28px, 5vw, 40px)", letterSpacing: "-0.04em", lineHeight: 1.1 }}
+            >
+              Din feed.
             </h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              {profil ? `Basert på profilen til ${profil.navn}` : "Logg inn eller lag profil"}
+            <p className="mt-1.5 text-sm text-zinc-500">
+              {profil ? `Tilpasset for ${profil.navn}` : "Logg inn eller lag profil"}
             </p>
           </div>
           <button
             type="button"
             disabled={loading}
             onClick={doScan}
-            className="flex items-center gap-2 rounded-xl bg-[#111] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50"
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50"
           >
             <i className={`ti ti-radar text-base ${loading ? "animate-spin" : ""}`} />
-            {loading ? "Oppdaterer…" : "Oppdater feed"}
+            {loading ? "Oppdaterer…" : "Oppdater"}
           </button>
         </div>
 
@@ -364,27 +370,32 @@ export default function FinnPage() {
         )}
 
         {/* Summary-kort */}
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: "Stillinger", value: stillinger.length, color: "text-emerald-700" },
-            { label: "Signaler", value: signaler.length, color: "text-orange-600" },
-            { label: "Nøkkelpersoner", value: personer.length, color: "text-violet-600" },
-            { label: "Match-score", value: `${matchScore}%`, color: "text-[#1D9E75]" },
+            { label: "Stillinger", value: stillinger.length },
+            { label: "Signaler", value: signaler.length },
+            { label: "Nøkkelpersoner", value: personer.length },
+            { label: "Match-score", value: `${matchScore}%` },
           ].map((c) => (
-            <div key={c.label} className="rounded-2xl bg-white p-4" style={{ border: "0.5px solid rgba(0,0,0,0.08)" }}>
-              <p className={`text-2xl font-semibold ${c.color}`}>{c.value}</p>
-              <p className="mt-1 text-xs text-zinc-500">{c.label}</p>
+            <div key={c.label} className="rounded-xl border border-zinc-100 bg-white p-4">
+              <p
+                className="font-semibold text-zinc-950"
+                style={{ fontSize: "28px", letterSpacing: "-0.04em", lineHeight: 1 }}
+              >
+                {c.value}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">{c.label}</p>
             </div>
           ))}
         </div>
 
-        {/* Signal-sammendrag (Del 5) */}
+        {/* Signal-sammendrag */}
         {signalSammendrag && (
-          <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: "#F0FDF4", border: "0.5px solid rgba(29,158,117,0.25)" }}>
-            <svg className="mt-0.5 h-4 w-4 shrink-0 text-[#1D9E75]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <div className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3">
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-zinc-700" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
             </svg>
-            <p className="text-sm text-emerald-900">{signalSammendrag}</p>
+            <p className="text-sm text-zinc-700">{signalSammendrag}</p>
           </div>
         )}
 
@@ -392,9 +403,9 @@ export default function FinnPage() {
         {erHøySesong && <KarriereCoach kontekst="hoy-sesong" />}
 
         {/* Daglig innsikt */}
-        <div className="rounded-xl px-4 py-3" style={{ background: "#FFFBF0", border: "0.5px solid rgba(29,158,117,0.2)" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#1D9E75]">Hva sier markedet i dag</p>
-          <p className="mt-1 text-sm leading-relaxed text-zinc-800">{dagligInnsikt.tekst}</p>
+        <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">Hva sier markedet i dag</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-zinc-800">{dagligInnsikt.tekst}</p>
           <p className="mt-1 text-[10px] text-zinc-400">{dagligInnsikt.kilde}</p>
         </div>
 
@@ -426,10 +437,10 @@ export default function FinnPage() {
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
                 filter === f.key
-                  ? "bg-[#111] text-white"
-                  : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  ? "bg-zinc-950 text-white"
+                  : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
               }`}
             >
               {f.label}
@@ -533,7 +544,7 @@ export default function FinnPage() {
                           <button
                             type="button"
                             onClick={() => velgOgGa(f)}
-                            className="rounded-lg bg-[#111] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800"
+                            className="rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800"
                           >
                             Generer søknad
                           </button>

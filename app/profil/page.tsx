@@ -114,7 +114,7 @@ export default function ProfilPage() {
   const bioLeft = Math.max(0, BIO_MAX - profile.bio.length);
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] text-zinc-950">
+    <div className="min-h-screen bg-white text-zinc-950">
       <div className="mx-auto max-w-4xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
         <Link
           href="/"

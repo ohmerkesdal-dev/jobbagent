@@ -3,12 +3,12 @@
 @tailwind utilities;
 
 html {
-  background-color: #f5f4f0;
+  background-color: #ffffff;
   color: #111111;
 }
 
 :root {
-  --background: #f5f4f0;
+  --background: #ffffff;
   --surface: #ffffff;
   --foreground: #111111;
 }

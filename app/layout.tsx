@@ -34,7 +34,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[#f5f4f0] font-sans antialiased text-zinc-900`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-white font-sans antialiased text-zinc-900`}
       >
         <AppShell>{children}</AppShell>
       </body>

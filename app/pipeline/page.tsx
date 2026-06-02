@@ -194,7 +194,7 @@ export default function PipelinePage() {
     : undefined;
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] pb-24 pt-6 text-zinc-950 sm:pt-10">
+    <div className="min-h-screen bg-white pb-24 pt-6 text-zinc-950 sm:pt-10">
       <div className="mx-auto max-w-4xl px-4 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

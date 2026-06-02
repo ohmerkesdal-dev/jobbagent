@@ -181,7 +181,7 @@ export default function KjennPage() {
   const profil = up;
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] pb-24 pt-8">
+    <div className="min-h-screen bg-white pb-24 pt-8">
       <div className="mx-auto grid max-w-5xl gap-6 px-4 sm:px-6 lg:grid-cols-[1fr_320px]">
 
         {/* Venstre: Chat-flyt */}
