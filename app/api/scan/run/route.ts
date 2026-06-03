@@ -14,6 +14,13 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").trim();
 }
 
+// Henter selskapsnavn fra Finn-titler: "Rolle · Sted · Selskap | FINN Jobb"
+function extractFinnCompany(title: string): string | undefined {
+  const m = title.match(/·\s*([^·|]{2,80}?)\s*\|\s*FINN/i);
+  if (m?.[1]) return m[1].trim();
+  return undefined;
+}
+
 // Kommunekoder for de vanligste byene
 function kommuneKode(geo: string): string {
   const g = geo.toLowerCase();
@@ -132,10 +139,10 @@ export async function POST(request: Request) {
   // Søkeordutvidelse — brukes for relevansfiltrering i DEL 2 og DEL 3
   const relevanteSøkeord = [
     sokeord,
-    ...(sokeord.includes("regnskap") ? ["regnskapsfører","regnskapsmedarbeider","controller","økonomi","revisjon","revisor","regnskap"] : []),
-    ...(sokeord.includes("hr")       ? ["human resources","people","rekruttering","personalansvarlig","personalleder"] : []),
-    ...(sokeord.includes("salg")     ? ["salgsansvarlig","sales","account manager","business development"] : []),
-    ...(sokeord.includes("it")       ? ["utvikler","developer","engineer","systemutvikler","frontend","backend"] : []),
+    ...(sokeord.includes("regnskap") ? ["regnskapsfører","regnskapsmedarbeider","controller","økonomi","revisjon","revisor","regnskap","accounting","finance","cfo","group controller","finanscontroller"] : []),
+    ...(sokeord.includes("hr")       ? ["human resources","people","rekruttering","personalansvarlig","personalleder","talent","hr manager","people manager"] : []),
+    ...(sokeord.includes("salg")     ? ["salgsansvarlig","sales","business development","salgssjef","salgskonsulent"] : []),
+    ...(sokeord.includes("it")       ? ["utvikler","developer","engineer","systemutvikler","frontend","backend","software","teknologi"] : []),
   ];
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -144,8 +151,8 @@ export async function POST(request: Request) {
   if (webEnabled) {
     const hdr     = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
     const finnSøk = [
-      `site:finn.no/job ${sokeord} ${geografi}`,
-      `site:finn.no/job ${sokeord} norge`,
+      `site:finn.no/job/ad ${sokeord} ${geografi}`,
+      `site:finn.no/job/ad ${sokeord} norge`,
     ];
     for (const query of finnSøk) {
       try {
@@ -157,18 +164,19 @@ export async function POST(request: Request) {
           const it      = item as Record<string, unknown>;
           const itemUrl = typeof it.url === "string" ? it.url.trim() : "";
           if (!/finn\.no\/job\/(ad\/)?\d+/.test(itemUrl)) continue;
-          const title   = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
-          if (!title || title.length < 10) continue;
+          const rawTitle = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
+          if (!rawTitle || rawTitle.length < 10) continue;
           const ugyldigeTitler = ["alle har rett","godt liv","søk uten cv","lignende annonser","finn jobb"];
-          if (ugyldigeTitler.some(u => title.toLowerCase().includes(u))) continue;
+          if (ugyldigeTitler.some(u => rawTitle.toLowerCase().includes(u))) continue;
           const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
-          const tekst   = `${title} ${desc}`.toLowerCase();
-          if (!relevanteSøkeord.some(ord => tekst.includes(ord))) continue;
+          // Finn: behold kun annonser der tittel eller beskrivelse inneholder relevant ord
+          if (!relevanteSøkeord.some(ord => (rawTitle + " " + desc).toLowerCase().includes(ord))) continue;
           funn.push({
             id:          randomUUID(),
             signalType:  "Utlyst stilling",
             kategori:    "stilling",
-            title,
+            title:       rawTitle.replace(/\s*\|\s*FINN(\.no|\.no\s*Jobb|\s*Jobb)?$/i, "").trim(),
+            company:     extractFinnCompany(rawTitle),
             location:    geografi,
             beskrivelse: desc.slice(0, 300) || undefined,
             url:         itemUrl,
@@ -208,6 +216,8 @@ export async function POST(request: Request) {
           const title   = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
           if (!title || title.length < 5) continue;
           const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
+          // Filtrer bort innlegg eldre enn 1 år
+          if (["2022","2023","2024"].some(år => (title + desc).includes(år))) continue;
           const tekst   = `${title} ${desc}`.toLowerCase();
           if (!relevanteSøkeord.some(ord => tekst.includes(ord))) continue;
           funn.push({
