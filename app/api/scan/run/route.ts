@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import type { ScannerFunn, SignalSubtype } from "@/lib/scanner-types";
 import type { ProfilScanInput } from "@/lib/scanner-types";
 import { isWebScanEnabled } from "@/lib/scanner-web-config";
@@ -46,6 +47,34 @@ const KARRIERE_ORDBOK: Record<string, string[]> = {
   it:                   ["utvikler","developer","engineer","systemutvikler","frontend","backend","software","teknologi","devops"],
 };
 
+// Genererer søkeord dynamisk med Claude Haiku — fallback til KARRIERE_ORDBOK ved feil
+async function genererSøkeord(p: ProfilScanInput): Promise<string[]> {
+  try {
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model:      "claude-haiku-4-5-20251001",
+      max_tokens: 200,
+      messages: [{
+        role: "user",
+        content: `Du er en norsk karriererådgiver. Brukeren søker: "${p.seeking || ""}", bransje: "${p.industry || ""}", bio: "${p.bio || ""}".
+
+Generer 8 relevante norske og engelske stillingstitler og søkeord denne personen bør søke på i Norge.
+
+Returner KUN en JSON-array med strings, ingen forklaring:
+["søkeord1", "søkeord2", ...]`,
+      }],
+    });
+    const tekst    = msg.content.find(b => b.type === "text") ? (msg.content.find(b => b.type === "text") as { type: "text"; text: string }).text : "[]";
+    const parsed   = JSON.parse(tekst.replace(/```json|```/g, "").trim()) as unknown;
+    const søkeord  = Array.isArray(parsed) ? (parsed as unknown[]).filter(x => typeof x === "string") as string[] : [];
+    console.log("AI-genererte søkeord:", søkeord.join(", "));
+    return søkeord.length > 0 ? søkeord : [];
+  } catch (e) {
+    console.error("Søkeord-generering feil:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
 const SIGNAL_ORD  = ["funding","investering","vekst","ansetter","ekspanderer","millioner","ny ceo","ny cfo","ny direktør","henter kapital"];
 const SKIP_DOMENER = ["brreg.no","proff.no","1881.no","gulesider.no","virksomheter.no","youtube.com","facebook.com","instagram.com"];
 const BRANSJENYHET_DOM = ["e24.no","finansavisen.no","nrk.no","dn.no","dagbladet.no"];
@@ -74,27 +103,33 @@ export async function POST(request: Request) {
   const now        = new Date().toISOString();
   const iÅr        = new Date().getFullYear();
 
-  // ── Bygg søkeProfil ────────────────────────────────────────────────────────
-  const primær    = (p.seeking || "regnskap").split(" ")[0].toLowerCase();
-  const geografi  = p.geography || "Oslo";
-  const bransje   = p.industry  || primær;
-  const kKode     = kommuneKode(geografi);
+  // ── Bygg søkeProfil med AI + statisk fallback ─────────────────────────────
+  const primær   = (p.seeking || "regnskap").split(" ")[0].toLowerCase();
+  const geografi = p.geography || "Oslo";
+  const bransje  = p.industry  || primær;
+  const kKode    = kommuneKode(geografi);
 
-  // Finn matching nøkkel i ordboken
-  const ordNøkkel = Object.keys(KARRIERE_ORDBOK).find(k =>
-    primær.includes(k) || k.includes(primær) || bransje.toLowerCase().includes(k)
-  ) ?? primær;
-  const ordFraBok = KARRIERE_ORDBOK[ordNøkkel] ?? [];
-  const alleOrd   = [primær, ...ordFraBok.filter(o => o.toLowerCase() !== primær)];
+  // AI-genererte søkeord — faller tilbake til kariereordbok ved feil
+  const aiSøkeord = await genererSøkeord(p);
+
+  let alleOrd: string[];
+  if (aiSøkeord.length > 0) {
+    // Sett primærordet først, deduper
+    alleOrd = [primær, ...aiSøkeord.filter(o => o.toLowerCase() !== primær)];
+  } else {
+    // Statisk fallback
+    const ordNøkkel = Object.keys(KARRIERE_ORDBOK).find(k =>
+      primær.includes(k) || k.includes(primær) || bransje.toLowerCase().includes(k)
+    ) ?? primær;
+    const ordFraBok = KARRIERE_ORDBOK[ordNøkkel] ?? [];
+    alleOrd = [primær, ...ordFraBok.filter(o => o.toLowerCase() !== primær)];
+  }
 
   const søkeProfil = { primær, alle: alleOrd, geografi, kommuneKode: kKode };
 
-  // ── Problem 4: Logg søkeprofil ─────────────────────────────────────────────
   console.log("=== SØKEPROFIL ===");
-  console.log("Primær:", søkeProfil.primær);
-  console.log("Alle søkeord:", søkeProfil.alle.slice(0, 6).join(", "));
-  console.log("Geografi:", søkeProfil.geografi);
-  console.log("Kommune:", søkeProfil.kommuneKode);
+  console.log("AI søkeord for", p.seeking, ":", søkeProfil.alle.slice(0, 6).join(", "));
+  console.log("Geografi:", søkeProfil.geografi, "| Kommune:", søkeProfil.kommuneKode);
 
   // ── DEL 1 — NAV parallelle søk (Elasticsearch, åpent API) ─────────────────
   try {
