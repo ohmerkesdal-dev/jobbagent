@@ -150,10 +150,9 @@ export default function FinnPage() {
   useEffect(() => {
     if (!getStoredUserProfile()) return;
     const last = getSistScan();
-    const overDøgn = !last || Date.now() - new Date(last).getTime() > 24 * 3600 * 1000;
-    if (!overDøgn) return;
-    const d = new Date().toDateString();
-    const lock = `jobbagent_finn_auto_${d}`;
+    const overTime = !last || Date.now() - new Date(last).getTime() > 60 * 60 * 1000;
+    if (!overTime) return;
+    const lock = `jobbagent_finn_auto_${Math.floor(Date.now() / (60 * 60 * 1000))}`;
     if (sessionStorage.getItem(lock)) return;
     sessionStorage.setItem(lock, "1");
     void doScan();
@@ -318,6 +317,12 @@ export default function FinnPage() {
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-white pb-24 pt-8">
+      {/* Diskret lasteindikator øverst */}
+      {loading && (
+        <div className="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-zinc-100">
+          <div className="h-full animate-[slide_1.4s_ease-in-out_infinite] bg-zinc-950" style={{ width: "40%" }} />
+        </div>
+      )}
       <div className="mx-auto max-w-3xl px-4 sm:px-6">
 
         {/* Header */}
