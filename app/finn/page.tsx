@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KarriereCoach } from "@/components/KarriereCoach";
 import { useRouter } from "next/navigation";
 import { getStoredUserProfile, profileForApiRequest } from "@/lib/client-storage";
@@ -22,6 +22,13 @@ import { saveUserProfile } from "@/lib/client-storage";
 import { saveSelskaper } from "@/lib/scanner-storage";
 
 type Filter = "alle" | "har-stilling" | "har-signal" | "fulgt";
+
+type MatchAnalyse = {
+  matchScore: number;
+  matchForklaring?: string;
+  gap: Array<{ type: "ok" | "gap" | "missing"; tekst: string }>;
+  anbefaling: string;
+};
 
 const SIGNAL_META: Record<SignalSubtype, { label: string; timing: string; cls: string }> = {
   funding:       { label: "Funding",          timing: "Ansetter typisk innen 60 dager.",           cls: "bg-orange-100 text-orange-700"  },
@@ -84,6 +91,9 @@ export default function FinnPage() {
   const [kontaktmeldinger, setKontaktmeldinger] = useState<Map<string, string>>(new Map());
   const [generererKontakt, setGenerererKontakt] = useState<Set<string>>(new Set());
   const [fulgtSelskaper, setFulgtSelskaper] = useState<Set<string>>(new Set());
+  const [matchData, setMatchData] = useState<Record<string, MatchAnalyse>>({});
+  const [expandert, setExpandert] = useState<Record<string, boolean>>({});
+  const analyzingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const p = getStoredUserProfile();
@@ -215,6 +225,34 @@ export default function FinnPage() {
     localStorage.setItem("valgtStilling", JSON.stringify({ id: f.id, title: f.title, company: kort.navn }));
     router.push("/kjenn");
   }
+
+  const analyserStilling = useCallback(async (kort: SelskapKort) => {
+    const s = kort.stillinger[0];
+    if (!s || analyzingRef.current.has(kort.id)) return;
+    analyzingRef.current.add(kort.id);
+    try {
+      const p = getStoredUserProfile();
+      const pp = JSON.parse(localStorage.getItem("personProfile") ?? "{}") as Record<string, unknown>;
+      const res = await fetch("/api/stilling/analyser", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stilling: s, userProfile: p, personProfile: pp }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as MatchAnalyse;
+      setMatchData(prev => ({ ...prev, [kort.id]: data }));
+    } catch {}
+    finally { analyzingRef.current.delete(kort.id); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-analyser topp 5 selskapskort med stilling etter scan eller ved innlasting
+  useEffect(() => {
+    const top5 = grupperPerSelskap(funn).filter(k => k.stillinger.length > 0).slice(0, 5);
+    for (const kort of top5) {
+      if (!analyzingRef.current.has(kort.id)) void analyserStilling(kort);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funn]);
 
   // ── Gruppering ──────────────────────────────────────────────────────────────
   const alleSelskaper = useMemo(
@@ -430,9 +468,18 @@ export default function FinnPage() {
                         {kort.personer.length} kontakt{kort.personer.length > 1 ? "er" : ""}
                       </span>
                     )}
-                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
-                      {score}%
-                    </span>
+                    {matchData[kort.id] ? (
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{
+                        background: matchData[kort.id].matchScore >= 80 ? "#E1F5EE" : matchData[kort.id].matchScore >= 60 ? "#FAEEDA" : "#FEE2E2",
+                        color:      matchData[kort.id].matchScore >= 80 ? "#085041" : matchData[kort.id].matchScore >= 60 ? "#633806" : "#A32D2D",
+                      }}>
+                        {matchData[kort.id].matchScore}% match
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
+                        {score}%
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => toggleFølg(kort.navn)}
@@ -485,6 +532,30 @@ export default function FinnPage() {
                         );
                       })
                     )}
+                    {/* Match-analyse fra AI — inni Kol 1 */}
+                    {matchData[kort.id] && (() => {
+                      const m = matchData[kort.id];
+                      const col = m.matchScore >= 80 ? "#1D9E75" : m.matchScore >= 60 ? "#EF9F27" : "#E24B4A";
+                      return (
+                        <div className="mt-2 border-t border-zinc-100 pt-2">
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-[9px] text-zinc-400">Profil-match</span>
+                            <span className="text-[11px] font-semibold" style={{ color: col }}>{m.matchScore}%</span>
+                          </div>
+                          <div className="mb-2 h-1 overflow-hidden rounded-full bg-zinc-100">
+                            <div className="h-full rounded-full" style={{ width: `${m.matchScore}%`, background: col }} />
+                          </div>
+                          {m.gap.slice(0, 3).map((g, i) => (
+                            <div key={i} className="mb-0.5 flex items-start gap-1.5">
+                              <div className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{
+                                background: g.type === "ok" ? "#1D9E75" : g.type === "gap" ? "#EF9F27" : "#E24B4A",
+                              }} />
+                              <span className="text-[10px] leading-tight text-zinc-600">{g.tekst}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Kol 2 — Signal (kun funding/ny-ledelse/vekst/ansetter) */}
@@ -579,7 +650,52 @@ export default function FinnPage() {
                       {melding}
                     </div>
                   )}
+                  {matchData[kort.id] && (
+                    <button
+                      type="button"
+                      onClick={() => setExpandert(prev => ({ ...prev, [kort.id]: !prev[kort.id] }))}
+                      className="ml-auto text-[11px] text-zinc-400 hover:text-zinc-600 transition"
+                    >
+                      {expandert[kort.id] ? "Skjul ↑" : "Vis mer ↓"}
+                    </button>
+                  )}
                 </div>
+
+                {/* ── Vis mer — expanderbar seksjon ── */}
+                {expandert[kort.id] && matchData[kort.id] && (() => {
+                  const m = matchData[kort.id];
+                  return (
+                    <div className="grid grid-cols-2 gap-4 border-t border-zinc-100 px-4 py-3">
+                      <div>
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
+                          Hva stillingen krever
+                        </p>
+                        {m.gap.map((g, i) => (
+                          <div key={i} className="mb-1 flex items-start gap-1.5">
+                            <div className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{
+                              background: g.type === "ok" ? "#1D9E75" : g.type === "gap" ? "#EF9F27" : "#E24B4A",
+                            }} />
+                            <span className="text-[11px] leading-snug text-zinc-700">{g.tekst}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
+                          Din profil vs stillingen
+                        </p>
+                        {m.anbefaling && (
+                          <p className="mb-3 text-[11px] leading-relaxed text-zinc-600">{m.anbefaling}</p>
+                        )}
+                        {harStilling && (
+                          <button type="button" onClick={() => velgOgGa(kort)}
+                            className="rounded-lg bg-zinc-950 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-zinc-800">
+                            Generer tilpasset søknad →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
