@@ -39,6 +39,17 @@ export default function Home() {
   const heroTextRef = useRef<HTMLDivElement>(null);
   const searchSectionRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
+
+  // Redirect: med profil → /finn, uten profil → /onboarding
+  useEffect(() => {
+    try {
+      const p = localStorage.getItem("userProfile");
+      const harProfil = p && JSON.parse(p)?.soker;
+      router.replace(harProfil ? "/finn" : "/onboarding");
+    } catch {
+      router.replace("/onboarding");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [query, setQuery] = useState("");
   const [navn, setNavn] = useState("");
   const [epost, setEpost] = useState("");
