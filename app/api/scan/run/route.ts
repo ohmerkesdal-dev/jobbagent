@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import type { ScannerFunn } from "@/lib/scanner-types";
+import type { ScannerFunn, SignalSubtype } from "@/lib/scanner-types";
 import type { ProfilScanInput } from "@/lib/scanner-types";
 import { isWebScanEnabled } from "@/lib/scanner-web-config";
 
@@ -14,22 +14,42 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").trim();
 }
 
-// Henter selskapsnavn fra Finn-titler: "Rolle · Sted · Selskap | FINN Jobb"
 function extractFinnCompany(title: string): string | undefined {
   const m = title.match(/·\s*([^·|]{2,80}?)\s*\|\s*FINN/i);
   if (m?.[1]) return m[1].trim();
   return undefined;
 }
 
-// Kommunekoder for de vanligste byene
 function kommuneKode(geo: string): string {
   const g = geo.toLowerCase();
-  if (g.includes("bergen"))     return "4601";
-  if (g.includes("trondheim"))  return "5001";
-  if (g.includes("stavanger"))  return "1103";
-  if (g.includes("tromsø"))     return "5401";
-  return "0301"; // Oslo
+  if (g.includes("bergen"))    return "4601";
+  if (g.includes("trondheim")) return "5001";
+  if (g.includes("stavanger")) return "1103";
+  if (g.includes("tromsø"))    return "5401";
+  return "0301";
 }
+
+// Karriere-ordbok: primærnøkkel → liste med søkeord
+const KARRIERE_ORDBOK: Record<string, string[]> = {
+  regnskap:             ["regnskapsfører","regnskapsmedarbeider","regnskapskonsulent","controller","økonomi","revisor","accounting","finance"],
+  hr:                   ["HR","human resources","personalansvarlig","people operations","rekruttering","HR-leder","talent","people manager"],
+  controller:           ["controller","business controller","finanscontroller","økonomicontroller","group controller"],
+  revisor:              ["revisor","revisjon","statsautorisert revisor","audit"],
+  cfo:                  ["CFO","økonomisjef","finansdirektør","finance director","økonomisjef"],
+  markedsføring:        ["markedskoordinator","markedsansvarlig","marketing manager","digital markedsføring","growth","kommunikasjon"],
+  forretningsutvikling: ["forretningsutvikling","business development","BD manager","growth manager","strategi","strategisk rådgiver","innovasjon","partnership manager","kommersiell"],
+  salg:                 ["salg","salgskonsulent","key account","account manager","salgsleder","business development","salgsansvarlig"],
+  teknologi:            ["produktsjef","product manager","teknologileder","CTO","tech lead","løsningsarkitekt","systemutvikler","developer"],
+  konsulent:            ["konsulent","management consulting","rådgiver","analytiker","analyst"],
+  prosjekt:             ["prosjektleder","project manager","PMO","program manager"],
+  økonomi:              ["økonom","finansanalytiker","analyst","treasury","investor relations","finansanalytiker"],
+  it:                   ["utvikler","developer","engineer","systemutvikler","frontend","backend","software","teknologi","devops"],
+};
+
+const SIGNAL_ORD  = ["funding","investering","vekst","ansetter","ekspanderer","millioner","ny ceo","ny cfo","ny direktør","henter kapital"];
+const SKIP_DOMENER = ["brreg.no","proff.no","1881.no","gulesider.no","virksomheter.no","youtube.com","facebook.com","instagram.com"];
+const BRANSJENYHET_DOM = ["e24.no","finansavisen.no","nrk.no","dn.no","dagbladet.no"];
+const GAMLE_ÅR    = ["2019","2020","2021","2022","2023","2024"];
 
 export async function POST(request: Request) {
   let body: Body;
@@ -48,28 +68,38 @@ export async function POST(request: Request) {
     bio:       typeof profile.bio       === "string" ? profile.bio       : "",
   };
 
-  const warnings:   string[]       = [];
-  const funn:       ScannerFunn[]  = [];
-  const webEnabled  = isWebScanEnabled();
-  const now         = new Date().toISOString();
-  const iÅr         = new Date().getFullYear();
-  const sokeord     = (p.seeking || "regnskap").split(" ")[0].toLowerCase();
-  const geografi    = p.geography || "Oslo";
-  const bransje     = p.industry  || sokeord;
-  const kKode       = kommuneKode(geografi);
+  const warnings:  string[]      = [];
+  const funn:      ScannerFunn[] = [];
+  const webEnabled = isWebScanEnabled();
+  const now        = new Date().toISOString();
+  const iÅr        = new Date().getFullYear();
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // DEL 1 — NAV parallelle søk (åpent, Elasticsearch-format)
-  // ──────────────────────────────────────────────────────────────────────────
-  const extraNavKw = sokeord.includes("regnskap") ? ["controller","økonomisjef","CFO"]
-    : sokeord.includes("hr")    ? ["rekruttering","people manager"]
-    : sokeord.includes("salg")  ? ["salgssjef","business development"]
-    : sokeord.includes("it")    ? ["systemutvikler","senior developer"]
-    : [];
-  const navKeywords = [sokeord, ...extraNavKw.slice(0, 2)];
+  // ── Bygg søkeProfil ────────────────────────────────────────────────────────
+  const primær    = (p.seeking || "regnskap").split(" ")[0].toLowerCase();
+  const geografi  = p.geography || "Oslo";
+  const bransje   = p.industry  || primær;
+  const kKode     = kommuneKode(geografi);
 
+  // Finn matching nøkkel i ordboken
+  const ordNøkkel = Object.keys(KARRIERE_ORDBOK).find(k =>
+    primær.includes(k) || k.includes(primær) || bransje.toLowerCase().includes(k)
+  ) ?? primær;
+  const ordFraBok = KARRIERE_ORDBOK[ordNøkkel] ?? [];
+  const alleOrd   = [primær, ...ordFraBok.filter(o => o.toLowerCase() !== primær)];
+
+  const søkeProfil = { primær, alle: alleOrd, geografi, kommuneKode: kKode };
+
+  // ── Problem 4: Logg søkeprofil ─────────────────────────────────────────────
+  console.log("=== SØKEPROFIL ===");
+  console.log("Primær:", søkeProfil.primær);
+  console.log("Alle søkeord:", søkeProfil.alle.slice(0, 6).join(", "));
+  console.log("Geografi:", søkeProfil.geografi);
+  console.log("Kommune:", søkeProfil.kommuneKode);
+
+  // ── DEL 1 — NAV parallelle søk (Elasticsearch, åpent API) ─────────────────
   try {
-    const navHitsAll = await Promise.all(navKeywords.map(async (kw) => {
+    const navKeywords = søkeProfil.alle.slice(0, 3);
+    const navHitsAll  = await Promise.all(navKeywords.map(async (kw) => {
       const url = `https://arbeidsplassen.nav.no/stillinger/api/search?q=${encodeURIComponent(kw)}&size=15&municipal=${kKode}`;
       const res = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
       if (!res.ok) { warnings.push(`NAV ${kw}: ${res.status}`); return []; }
@@ -77,15 +107,22 @@ export async function POST(request: Request) {
       return data.hits?.hits ?? [];
     }));
 
-    const iDag            = new Date();
+    const iDag           = new Date();
     const historiskeBatch: ScannerFunn[] = [];
+    const seenUuid        = new Set<string>();
 
     for (const hit of navHitsAll.flat()) {
       const h     = hit as Record<string, unknown>;
       const s     = (h._source ?? h) as Record<string, unknown>;
       const uuid  = String(s.uuid ?? h._id ?? "").trim();
       const title = String(s.title ?? "").trim();
-      if (!uuid || !title) continue;
+      if (!uuid || !title || seenUuid.has(uuid)) continue;
+
+      // Lokal relevansjekk mot søkeProfil.alle
+      const tekst = `${title} ${String(s.description ?? "")}`.toLowerCase();
+      if (!søkeProfil.alle.some(ord => tekst.includes(ord.toLowerCase()))) continue;
+
+      seenUuid.add(uuid);
       const locList   = (s.locationList as Array<Record<string,unknown>> | undefined) ?? [];
       const municipal = String(locList[0]?.municipal ?? locList[0]?.city ?? "") || geografi;
       const company   = String(s.businessName ?? "") || undefined;
@@ -99,8 +136,8 @@ export async function POST(request: Request) {
             signalType:          "Nyhet",
             kategori:            "signal",
             signalSubtype:       "historisk",
-            relevansForKandidat: "Bedriften ansetter periodisk i denne rollen — kan være verdt å ta kontakt proaktivt.",
-            title:               `${company ?? title} — "${title}" for ${dagerSiden} dager siden`,
+            relevansForKandidat: "Bedriften ansetter periodisk i denne rollen — verdt å ta kontakt proaktivt.",
+            title:               `${company ?? title} — "${title}" utløp for ${dagerSiden} dager siden`,
             company,
             location:            municipal,
             url:                 navUrl,
@@ -128,187 +165,128 @@ export async function POST(request: Request) {
         funnetDato:  now,
       });
     }
-    // Legg til inntil 3 historiske signaler
     funn.push(...historiskeBatch.slice(0, 3));
   } catch (e) {
     warnings.push(`NAV: ${e instanceof Error ? e.message : "feil"}`);
   }
-  console.log("NAV:", funn.filter(f => f.kildeNavn === "NAV").length, "stillinger");
+  console.log("NAV relevante stillinger:", funn.filter(f => f.kildeNavn === "NAV").length);
   console.log("Historiske signaler:", funn.filter(f => f.signalSubtype === "historisk").length);
 
-  // Søkeordutvidelse — brukes for relevansfiltrering i DEL 2 og DEL 3
-  const relevanteSøkeord = [
-    sokeord,
-    ...(sokeord.includes("regnskap") ? ["regnskapsfører","regnskapsmedarbeider","controller","økonomi","revisjon","revisor","regnskap","accounting","finance","cfo","group controller","finanscontroller"] : []),
-    ...(sokeord.includes("hr")       ? ["human resources","people","rekruttering","personalansvarlig","personalleder","talent","hr manager","people manager"] : []),
-    ...(sokeord.includes("salg")     ? ["salgsansvarlig","sales","business development","salgssjef","salgskonsulent"] : []),
-    ...(sokeord.includes("it")       ? ["utvikler","developer","engineer","systemutvikler","frontend","backend","software","teknologi"] : []),
-  ];
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // DEL 2 — Finn.no via Brave (kun finn.no/job-URLer)
-  // ──────────────────────────────────────────────────────────────────────────
+  // ── DEL 2+3+4 — Unified Brave Search ──────────────────────────────────────
   if (webEnabled) {
-    const hdr     = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
-    const finnSøk = [
-      `site:finn.no/job/ad ${sokeord} ${geografi}`,
-      `site:finn.no/job/ad ${sokeord} norge`,
-    ];
-    for (const query of finnSøk) {
-      try {
-        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10&country=NO&freshness=pw`;
-        const res = await fetch(url, { headers: hdr, cache: "no-store" });
-        if (!res.ok) { warnings.push(`Finn Brave: ${res.status}`); continue; }
-        const data = (await res.json()) as { web?: { results?: unknown[] } };
-        for (const item of (data.web?.results ?? [])) {
-          const it      = item as Record<string, unknown>;
-          const itemUrl = typeof it.url === "string" ? it.url.trim() : "";
-          if (!/finn\.no\/job\/(ad\/)?\d+/.test(itemUrl)) continue;
-          const rawTitle = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
-          if (!rawTitle || rawTitle.length < 10) continue;
-          const ugyldigeTitler = ["alle har rett","godt liv","søk uten cv","lignende annonser","finn jobb"];
-          if (ugyldigeTitler.some(u => rawTitle.toLowerCase().includes(u))) continue;
-          const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
-          // Finn: behold kun annonser der tittel eller beskrivelse inneholder relevant ord
-          if (!relevanteSøkeord.some(ord => (rawTitle + " " + desc).toLowerCase().includes(ord))) continue;
-          funn.push({
-            id:          randomUUID(),
-            signalType:  "Utlyst stilling",
-            kategori:    "stilling",
-            title:       rawTitle.replace(/\s*\|\s*FINN(\.no|\.no\s*Jobb|\s*Jobb)?$/i, "").trim(),
-            company:     extractFinnCompany(rawTitle),
-            location:    geografi,
-            beskrivelse: desc.slice(0, 300) || undefined,
-            url:         itemUrl,
-            kilde:       "Finn.no",
-            kildeNavn:   "Finn.no",
-            funnetDato:  now,
-          });
-        }
-      } catch (e) {
-        warnings.push(`Finn: ${e instanceof Error ? e.message : "feil"}`);
-      }
-    }
-    console.log("Finn.no:", funn.filter(f => f.kildeNavn === "Finn.no").length, "stillinger");
-  }
+    const hdr = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // DEL 3 — LinkedIn stillingsinnlegg via Brave
-  // ──────────────────────────────────────────────────────────────────────────
-  if (webEnabled) {
-    const hdr          = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
-    const linkedinSøk  = [
-      `"${sokeord}" "vi søker" OR "ledig stilling" OR "søker du" site:linkedin.com/posts`,
-      `"${bransje}" rekrutterer OR ansetter ${geografi} site:linkedin.com ${iÅr}`,
-      `"${sokeord}" ${geografi} rekruttering site:linkedin.com -site:linkedin.com/in/`,
+    const braveSøk = [
+      // Finn direkte annonser
+      `site:finn.no/job/ad "${søkeProfil.primær}" ${geografi}`,
+      `site:finn.no/job/ad "${søkeProfil.primær}" norge`,
+      // LinkedIn
+      `site:linkedin.com/jobs "${søkeProfil.primær}" ${geografi} ${iÅr}`,
+      `site:linkedin.com/posts "${søkeProfil.primær}" "vi søker" OR "ledig stilling" ${iÅr}`,
+      // Generelle stillinger
+      `"${søkeProfil.primær}" stilling ${geografi} ${iÅr} -site:proff.no -site:brreg.no -site:facebook.com`,
+      // Signaler
+      `${søkeProfil.alle.slice(0, 2).join(" OR ")} selskap funding investering ansetter Norge ${iÅr}`,
+      `${søkeProfil.primær} selskap "ny CEO" OR "ny CFO" OR "ny direktør" OR vekst Norge ${iÅr}`,
     ];
-    for (const query of linkedinSøk) {
-      try {
-        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&country=NO&freshness=pm`;
-        const res = await fetch(url, { headers: hdr, cache: "no-store" });
-        if (!res.ok) { warnings.push(`LinkedIn Brave: ${res.status}`); continue; }
-        const data = (await res.json()) as { web?: { results?: unknown[] } };
-        for (const item of (data.web?.results ?? [])) {
-          const it      = item as Record<string, unknown>;
-          const itemUrl = typeof it.url === "string" ? it.url.trim() : "";
-          if (!itemUrl.includes("linkedin.com")) continue;
-          if (itemUrl.includes("/in/")) continue;
-          const title   = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
-          if (!title || title.length < 5) continue;
-          const desc    = stripHtml(typeof it.description === "string" ? it.description : "");
-          // Filtrer bort innlegg eldre enn 1 år
-          if (["2022","2023","2024"].some(år => (title + desc).includes(år))) continue;
-          const tekst   = `${title} ${desc}`.toLowerCase();
-          if (!relevanteSøkeord.some(ord => tekst.includes(ord))) continue;
-          funn.push({
-            id:          randomUUID(),
-            signalType:  "LinkedIn",
-            kategori:    "stilling",
-            title,
-            location:    geografi,
-            beskrivelse: desc.slice(0, 300) || undefined,
-            url:         itemUrl,
-            kilde:       "LinkedIn",
-            kildeNavn:   "LinkedIn",
-            funnetDato:  now,
-          });
-        }
-      } catch (e) {
-        warnings.push(`LinkedIn: ${e instanceof Error ? e.message : "feil"}`);
-      }
-    }
-    console.log("LinkedIn:", funn.filter(f => f.kildeNavn === "LinkedIn").length);
-  }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // DEL 4 — Signaler (vekst og funding) via Brave — ingen Brreg/Proff
-  // ──────────────────────────────────────────────────────────────────────────
-  if (webEnabled) {
-    const hdr               = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
-    const SKIP_DOMENER      = ["brreg.no","proff.no","1881.no","gulesider.no","virksomheter.no","purehelp.no"];
-    const SIGNAL_ORD        = ["funding","investering","vekst","ansetter","ekspanderer","millioner","ny ceo","ny cfo","ny direktør","henter kapital"];
-    const BRANSJENYHET_DOM  = ["e24.no","finansavisen.no","nrk.no","dn.no","dagbladet.no"];
-    const signalSøk         = [
-      `${sokeord} selskap funding investering ansetter Norge ${iÅr}`,
-      `${bransje} vekst ekspanderer ${geografi} ${iÅr}`,
-      `${sokeord} selskap "ny CEO" OR "ny CFO" OR "ny direktør" Norge ${iÅr}`,
-    ];
-    for (const query of signalSøk) {
+    for (const query of braveSøk) {
       try {
-        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&country=NO&freshness=pm`;
+        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8&country=NO&freshness=pm`;
         const res = await fetch(url, { headers: hdr, cache: "no-store" });
-        if (!res.ok) { warnings.push(`Signal Brave: ${res.status}`); continue; }
+        if (!res.ok) { warnings.push(`Brave: ${res.status}`); continue; }
         const data = (await res.json()) as { web?: { results?: unknown[] } };
+
         for (const item of (data.web?.results ?? [])) {
           const it      = item as Record<string, unknown>;
           const itemUrl = typeof it.url === "string" ? it.url.trim() : "";
           if (!itemUrl) continue;
           if (SKIP_DOMENER.some(d => itemUrl.includes(d))) continue;
-          const title  = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
-          const desc   = stripHtml(typeof it.description === "string" ? it.description : "");
-          const tekst  = `${title} ${desc}`.toLowerCase();
-          if (!SIGNAL_ORD.some(s => tekst.includes(s))) continue;
 
-          const erBransje = BRANSJENYHET_DOM.some(d => itemUrl.includes(d));
-          const subtype   = erBransje ? "bransjenyhet" as const
-            : tekst.includes("funding") || tekst.includes("investering") || tekst.includes("henter kapital") ? "funding"    as const
-            : tekst.includes("direktør") || tekst.includes("ceo") || tekst.includes("cfo")                  ? "ny-ledelse" as const
-            : "vekst" as const;
+          const rawTitle = stripHtml(typeof it.title === "string" ? it.title.trim() : "");
+          const desc     = stripHtml(typeof it.description === "string" ? it.description : "");
+          if (!rawTitle || rawTitle.length < 10) continue;
 
-          const relevans =
-            subtype === "funding"     ? "Selskaper som henter kapital ansetter typisk innen 60–90 dager."  :
-            subtype === "ny-ledelse"  ? "Ny leder bygger alltid team i løpet av de første 60 dagene."      :
-            subtype === "vekst"       ? "Vekstselskaper ansetter før de lyser ut stillinger offentlig."    :
-            "Markedsbevegelser påvirker ansettelser i din bransje.";
+          // Filtrer gamle årstall (kun i tittel)
+          if (GAMLE_ÅR.some(å => rawTitle.includes(å))) continue;
 
-          funn.push({
-            id:                 randomUUID(),
-            signalType:         "Nyhet",
-            kategori:           "signal",
-            signalSubtype:      subtype,
-            relevansForKandidat: relevans,
-            title,
-            location:           geografi,
-            beskrivelse:        desc.slice(0, 300) || undefined,
-            url:                itemUrl,
-            kilde:              `Signal (${subtype})`,
-            funnetDato:         now,
-          });
+          const tekst = `${rawTitle} ${desc}`.toLowerCase();
+
+          // Relevansjekk
+          if (!søkeProfil.alle.some(ord => tekst.includes(ord.toLowerCase()))) continue;
+
+          // Klassifiser
+          const erLinkedIn = itemUrl.includes("linkedin.com");
+          const erFinn     = /finn\.no\/job\/(ad\/)?\d+/.test(itemUrl);
+          const erSignal   = SIGNAL_ORD.some(s => tekst.includes(s));
+
+          // Skip LinkedIn-profiler
+          if (erLinkedIn && itemUrl.includes("/in/")) continue;
+
+          // Ugyldig Finn-tittel
+          const ugyldigeTitler = ["alle har rett","godt liv","søk uten cv","lignende annonser","finn jobb"];
+          if (erFinn && ugyldigeTitler.some(u => rawTitle.toLowerCase().includes(u))) continue;
+
+          if (erSignal) {
+            const erBransje = BRANSJENYHET_DOM.some(d => itemUrl.includes(d));
+            const subtype: SignalSubtype = erBransje ? "bransjenyhet"
+              : tekst.includes("funding") || tekst.includes("investering") || tekst.includes("henter kapital") ? "funding"
+              : tekst.includes("direktør") || tekst.includes("ceo") || tekst.includes("cfo")                  ? "ny-ledelse"
+              : "vekst";
+
+            const relevans =
+              subtype === "funding"    ? "Selskaper som henter kapital ansetter typisk innen 60–90 dager." :
+              subtype === "ny-ledelse" ? "Ny leder bygger alltid team i løpet av de første 60 dagene."     :
+              subtype === "vekst"      ? "Vekstselskaper ansetter før de lyser ut stillinger offentlig."   :
+              "Markedsbevegelser påvirker ansettelser i din bransje.";
+
+            funn.push({
+              id:                  randomUUID(),
+              signalType:          "Nyhet",
+              kategori:            "signal",
+              signalSubtype:       subtype,
+              relevansForKandidat: relevans,
+              title:               rawTitle,
+              location:            geografi,
+              beskrivelse:         desc.slice(0, 300) || undefined,
+              url:                 itemUrl,
+              kilde:               `Signal (${subtype})`,
+              funnetDato:          now,
+            });
+          } else {
+            const cleanTitle = erFinn
+              ? rawTitle.replace(/\s*\|\s*FINN(\.no|\.no\s*Jobb|\s*Jobb)?$/i, "").trim()
+              : rawTitle;
+            funn.push({
+              id:          randomUUID(),
+              signalType:  erLinkedIn ? "LinkedIn" : "Utlyst stilling",
+              kategori:    "stilling",
+              title:       cleanTitle,
+              company:     erFinn ? extractFinnCompany(rawTitle) : undefined,
+              location:    geografi,
+              beskrivelse: desc.slice(0, 300) || undefined,
+              url:         itemUrl,
+              kilde:       erLinkedIn ? "LinkedIn" : erFinn ? "Finn.no" : "Nett",
+              kildeNavn:   erLinkedIn ? "LinkedIn" : erFinn ? "Finn.no" : undefined,
+              funnetDato:  now,
+            });
+          }
         }
       } catch (e) {
-        warnings.push(`Signal: ${e instanceof Error ? e.message : "feil"}`);
+        warnings.push(`Brave søk feil: ${e instanceof Error ? e.message : "feil"}`);
       }
     }
+    console.log("Brave stillinger:", funn.filter(f => f.kategori === "stilling" && f.kilde !== "NAV").length);
     console.log("Signaler:", funn.filter(f => f.kategori === "signal").length);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
   console.log("=== SCAN FERDIG ===");
-  console.log("NAV stillinger:",   funn.filter(f => f.kildeNavn === "NAV").length);
+  console.log("NAV stillinger:",     funn.filter(f => f.kildeNavn === "NAV").length);
   console.log("Finn.no stillinger:", funn.filter(f => f.kildeNavn === "Finn.no").length);
-  console.log("LinkedIn:",         funn.filter(f => f.kildeNavn === "LinkedIn").length);
-  console.log("Signaler:",         funn.filter(f => f.kategori === "signal").length);
-  console.log("Totalt:",           funn.length);
+  console.log("LinkedIn:",           funn.filter(f => f.kildeNavn === "LinkedIn").length);
+  console.log("Signaler:",           funn.filter(f => f.kategori === "signal").length);
+  console.log("Totalt:",             funn.length);
 
   const seen    = new Set<string>();
   const deduped = funn.filter(f => { if (seen.has(f.url)) return false; seen.add(f.url); return true; });
