@@ -38,6 +38,8 @@ export type UserProfile = {
   karrieremaal: string;
   cvText?: string;
   selskaper: string[];
+  utdanning?: string;
+  sertifiseringer?: string[];
 };
 
 export type PersonProfile = {

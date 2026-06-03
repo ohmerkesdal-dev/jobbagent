@@ -21,14 +21,19 @@ export async function POST(request: Request) {
     ? (up.ferdigheter as string[]).join(", ")
     : String(up?.ferdigheter ?? "");
 
+  const sertifiseringer = Array.isArray(up?.sertifiseringer)
+    ? (up.sertifiseringer as string[]).join(", ")
+    : "";
+
   const prompt = `Du er en norsk karriererådgiver. Analyser match mellom kandidat og stilling.
 
 KANDIDAT:
 - Søker: ${up?.soker ?? ""}
-- Bransje: ${up?.bransje ?? ""}
+- Utdanning: ${String(up?.utdanning ?? "") || "ikke oppgitt"}
+- Sertifiseringer: ${sertifiseringer || "ingen"}
 - Erfaring: ${up?.erfaring ?? ""}
 - Ferdigheter: ${ferdigheter}
-- Karrieremål: ${up?.karrieremaal ?? ""}
+- Geografi: ${String(up?.geografi ?? "")}
 
 STILLING:
 - Tittel: ${stilling.title ?? ""}

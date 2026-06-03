@@ -93,6 +93,9 @@ export default function FinnPage() {
   const [fulgtSelskaper, setFulgtSelskaper] = useState<Set<string>>(new Set());
   const [matchData, setMatchData] = useState<Record<string, MatchAnalyse>>({});
   const [expandert, setExpandert] = useState<Record<string, boolean>>({});
+  const [relevansFilter, setRelevansFilter] = useState<"alle" | "høy" | "middels" | "lav">("alle");
+  const [kildeFilter, setKildeFilter] = useState<"alle" | "NAV" | "LinkedIn" | "Finn.no" | "Bedriftssider">("alle");
+  const [typeFilter, setTypeFilter] = useState<"alle" | "stilling" | "signal" | "fulgt">("alle");
   const analyzingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -314,6 +317,29 @@ export default function FinnPage() {
     { key: "fulgt",        label: "Jeg følger" },
   ];
 
+  // Kilde- og type-filtrering på toppen av eksisterende `filtrerte`
+  const filtratFinal = useMemo(() => {
+    let r = filtrerte;
+    if (kildeFilter !== "alle") r = r.filter(k =>
+      k.stillinger.some(s => s.kildeNavn === kildeFilter) ||
+      k.signaler.some(s => s.kilde?.includes(kildeFilter))
+    );
+    if (typeFilter === "stilling") r = r.filter(k => k.stillinger.length > 0);
+    if (typeFilter === "signal")   r = r.filter(k => k.signaler.length > 0);
+    if (typeFilter === "fulgt")    r = r.filter(k => k.erFulgt);
+    return r;
+  }, [filtrerte, kildeFilter, typeFilter]);
+
+  // Seksjonsbasert på matchData
+  const høyRelevans     = filtratFinal.filter(k => (matchData[k.id]?.matchScore ?? 0) >= 70);
+  const middelsRelevans = filtratFinal.filter(k => { const m = matchData[k.id]?.matchScore ?? 0; return m >= 40 && m < 70; });
+  const lavRelevans     = filtratFinal.filter(k => (matchData[k.id]?.matchScore ?? 0) < 40);
+
+  const synligeSeksjoner = relevansFilter === "høy"     ? [høyRelevans]
+    : relevansFilter === "middels" ? [middelsRelevans]
+    : relevansFilter === "lav"     ? [lavRelevans]
+    : [høyRelevans, middelsRelevans, lavRelevans];
+
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-white pb-24 pt-8">
@@ -407,31 +433,102 @@ export default function FinnPage() {
           </div>
         )}
 
-        {/* Filter-piller */}
-        <div className="mt-6 flex flex-wrap gap-2">
-          {FILTERS.map((f) => (
-            <button key={f.key} type="button" onClick={() => setFilter(f.key)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-                filter === f.key
-                  ? "bg-zinc-950 text-white"
-                  : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}>
-              {f.label}
-            </button>
-          ))}
+        {/* Del 4 — Profil-sammendrag */}
+        {profil && (
+          <div className="mt-6 rounded-xl px-4 py-3" style={{ border: "1.5px solid #5DCAA5", background: "#F0FBF7" }}>
+            <p className="mb-2 text-[11px] font-semibold text-zinc-600">Din profil — systemet bruker dette til å filtrere stillinger</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Stilling",        verdi: profil.soker },
+                { label: "Geografi",        verdi: profil.geografi },
+                { label: "Erfaring",        verdi: profil.erfaring },
+                { label: "Utdanning",       verdi: (profil as UserProfile & { utdanning?: string }).utdanning },
+                { label: "Ferdigheter",     verdi: profil.ferdigheter?.join(", ") },
+                { label: "Sertifiseringer", verdi: (profil as UserProfile & { sertifiseringer?: string[] }).sertifiseringer?.join(", ") },
+              ].map(felt => (
+                <div key={felt.label} className="rounded-lg bg-white px-2.5 py-1.5">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400">{felt.label}</p>
+                  {felt.verdi ? (
+                    <p className="mt-0.5 truncate text-[11px] font-medium text-zinc-800">{felt.verdi}</p>
+                  ) : (
+                    <p className="mt-0.5 text-[11px] italic" style={{ color: "#A32D2D" }}>
+                      <a href="/onboarding" style={{ color: "#0F6E56" }}>Legg til</a>
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Del 3 — 3-rad filter */}
+        <div className="mt-4 space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { key: "alle" as const,    label: "Alle",                   dot: "" },
+              { key: "høy" as const,     label: "Passer deg godt",        dot: "#1D9E75" },
+              { key: "middels" as const, label: "Mulig med forberedelse", dot: "#EF9F27" },
+              { key: "lav" as const,     label: "Utenfor rekkevidde",     dot: "#E24B4A" },
+            ]).map(f => (
+              <button key={f.key} type="button" onClick={() => setRelevansFilter(f.key)}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition"
+                style={{ border: "0.5px solid", borderColor: relevansFilter === f.key ? "#111" : "rgba(0,0,0,0.12)", background: relevansFilter === f.key ? "#111" : "#fff", color: relevansFilter === f.key ? "#fff" : "#3F3F46" }}>
+                {f.dot && <span className="inline-block h-2 w-2 rounded-full" style={{ background: f.dot }} />}
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["alle","NAV","LinkedIn","Finn.no","Bedriftssider"] as const).map(k => (
+              <button key={k} type="button" onClick={() => setKildeFilter(k)}
+                className="rounded-full px-3 py-1 text-xs font-medium transition"
+                style={{ border: "0.5px solid", borderColor: kildeFilter === k ? "#111" : "rgba(0,0,0,0.12)", background: kildeFilter === k ? "#111" : "#fff", color: kildeFilter === k ? "#fff" : "#3F3F46" }}>
+                {k === "alle" ? "Alle kilder" : k}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { key: "alle" as const, label: "Alle typer" }, { key: "stilling" as const, label: "Stilling ute" },
+              { key: "signal" as const, label: "Vekstsignal" }, { key: "fulgt" as const, label: "Følger" },
+            ]).map(f => (
+              <button key={f.key} type="button" onClick={() => setTypeFilter(f.key)}
+                className="rounded-full px-3 py-1 text-xs font-medium transition"
+                style={{ border: "0.5px solid", borderColor: typeFilter === f.key ? "#111" : "rgba(0,0,0,0.12)", background: typeFilter === f.key ? "#111" : "#fff", color: typeFilter === f.key ? "#fff" : "#3F3F46" }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Selskaps-kort */}
-        <div className="mt-4 flex flex-col gap-4">
-          {filtrerte.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-200 py-14 text-center">
-              <p className="text-sm text-zinc-500">
-                {funn.length === 0
-                  ? "Trykk «Oppdater» for å starte skanningen."
-                  : "Ingen selskaper i denne kategorien."}
-              </p>
+        {/* Del 2 — Seksjonsbaserte selskaps-kort */}
+        {filtratFinal.length === 0 ? (
+          <div className="mt-6 rounded-2xl border border-dashed border-zinc-200 py-14 text-center">
+            <p className="text-sm text-zinc-500">
+              {funn.length === 0 ? "Trykk «Oppdater» for å starte skanningen." : "Ingen selskaper i denne kategorien."}
+            </p>
+          </div>
+        ) : (
+        <>
+        {([
+          { liste: høyRelevans,     dot: "#1D9E75", tittel: "Passer deg godt",                sub: "Du er kvalifisert — søk nå",               erLav: false },
+          { liste: middelsRelevans, dot: "#EF9F27", tittel: "Mulig med forberedelse",         sub: "Du mangler noe — men det kan kompenseres", erLav: false },
+          { liste: lavRelevans,     dot: "#E24B4A", tittel: "Sannsynligvis utenfor rekkevidde", sub: "Vises for innsikt",                       erLav: true  },
+        ]).filter(sek =>
+          relevansFilter === "alle" ||
+          (relevansFilter === "høy" && sek.tittel.includes("godt")) ||
+          (relevansFilter === "middels" && sek.tittel.includes("forberedelse")) ||
+          (relevansFilter === "lav" && sek.tittel.includes("utenfor"))
+        ).map(sek => sek.liste.length === 0 ? null : (
+          <div key={sek.tittel} className={`mt-6 ${sek.erLav ? "opacity-65" : ""}`}>
+            <div className="mb-3 flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: sek.dot }} />
+              <span className="text-xs font-semibold text-zinc-700">{sek.tittel}</span>
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">{sek.liste.length}</span>
+              <span className="text-[11px] text-zinc-400">{sek.sub}</span>
             </div>
-          ) : filtrerte.map((kort) => {
+            <div className="flex flex-col gap-4">
+              {sek.liste.map((kort) => {
             const score       = beregnMatchScore(kort);
             const isAdded     = addedIds.has(kort.id);
             const isGen       = generererKontakt.has(kort.id);
@@ -704,7 +801,11 @@ export default function FinnPage() {
               </div>
             );
           })}
-        </div>
+            </div>
+          </div>
+        ))}
+        </>
+        )}
         {/* ── Stillinger uten kjent selskap (flat liste) ─────────────── */}
         {ugrupperteStillinger.length > 0 && (
           <div className="mt-10">

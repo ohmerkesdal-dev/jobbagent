@@ -33,10 +33,12 @@ const TICKER_LINJER = [
   () => "Finner nøkkelpersoner du kan kontakte",
 ];
 
+const UTDANNING_PILLER = ["Videregående", "Fagbrev", "Bachelor", "Master", "PhD", "Annet"];
+
 function Dots({ steg }: { steg: number }) {
   return (
     <div className="flex items-center justify-center gap-2 mb-10">
-      {[0, 1, 2].map(i => (
+      {[0, 1, 2, 3].map(i => (
         <div key={i} className="rounded-full transition-all duration-300" style={{
           width: i === steg ? 20 : 6,
           height: 6,
@@ -73,6 +75,9 @@ export default function OnboardingPage() {
   const [soker, setSoker] = useState("");
   const [geo, setGeo] = useState("");
   const [erfaring, setErfaring] = useState<UserProfile["erfaring"] | "">("");
+  const [utdanning, setUtdanning] = useState("");
+  const [sertifiseringer, setSertifiseringer] = useState<string[]>([]);
+  const [sertInput, setSertInput] = useState("");
   const [bio, setBio] = useState("");
   const [tick, setTick] = useState(-1);
 
@@ -84,22 +89,24 @@ export default function OnboardingPage() {
     } catch {}
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Animasjon og redirect i steg 3
+  // Animasjon og redirect i steg 4
   useEffect(() => {
-    if (steg !== 3) return;
+    if (steg !== 4) return;
 
     // Lagre profil
     const profil: UserProfile = {
-      navn:        "",
-      soker:       soker.trim(),
-      bransje:     soker.trim().split(" ")[0],
-      geografi:    geo,
-      bio:         bio.trim(),
-      erfaring:    (erfaring as UserProfile["erfaring"]) || "1-3",
-      ferdigheter: [],
-      karrieremaal: soker.trim(),
-      cvText:      undefined,
-      selskaper:   [],
+      navn:            "",
+      soker:           soker.trim(),
+      bransje:         soker.trim().split(" ")[0],
+      geografi:        geo,
+      bio:             bio.trim(),
+      erfaring:        (erfaring as UserProfile["erfaring"]) || "1-3",
+      ferdigheter:     [],
+      karrieremaal:    soker.trim(),
+      cvText:          undefined,
+      selskaper:       [],
+      utdanning:       utdanning || undefined,
+      sertifiseringer: sertifiseringer.length > 0 ? sertifiseringer : undefined,
     };
     saveUserProfile(profil);
 
@@ -260,8 +267,85 @@ export default function OnboardingPage() {
     </div>
   );
 
-  // ── Steg 2 — Beskriv deg selv ──
+  // ── Steg 2 — Utdanning og sertifiseringer ──
   if (steg === 2) return (
+    <div style={base}>
+      <div style={inner}>
+        <Dots steg={2} />
+        <h1 style={bigTitle}>Hva er din utdanning?</h1>
+        <p style={sub}>Vi bruker dette til å matche deg med riktige stillinger.</p>
+
+        <p style={{ fontSize: 13, fontWeight: 600, color: "#3F3F46", marginBottom: 12 }}>
+          Høyeste utdanning
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
+          {UTDANNING_PILLER.map(u => (
+            <Pill key={u} label={u} valgt={utdanning === u} onClick={() => setUtdanning(u)} />
+          ))}
+        </div>
+
+        <p style={{ fontSize: 13, fontWeight: 600, color: "#3F3F46", marginBottom: 8 }}>
+          Relevante sertifiseringer <span style={{ fontWeight: 400, color: "#A1A1AA" }}>(valgfritt)</span>
+        </p>
+        <input
+          value={sertInput}
+          onChange={e => setSertInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter" && sertInput.trim()) {
+              setSertifiseringer(prev => [...prev, sertInput.trim()]);
+              setSertInput("");
+              e.preventDefault();
+            }
+          }}
+          placeholder="F.eks: Statsautorisert regnskapsfører, PMP, Google Analytics..."
+          style={{
+            width: "100%",
+            padding: "13px 16px",
+            borderRadius: 12,
+            border: "0.5px solid rgba(0,0,0,0.15)",
+            background: "#fff",
+            fontSize: 14,
+            outline: "none",
+            boxSizing: "border-box",
+            marginBottom: 10,
+          }}
+        />
+        {sertifiseringer.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {sertifiseringer.map((s, i) => (
+              <span key={i} style={{
+                display: "flex", alignItems: "center", gap: 4,
+                background: "#111", color: "#fff",
+                borderRadius: 20, padding: "4px 12px", fontSize: 12,
+              }}>
+                {s}
+                <button type="button" onClick={() => setSertifiseringer(prev => prev.filter((_, j) => j !== i))}
+                  style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 14 }}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
+          <button type="button" onClick={() => setSteg(1)}
+            style={{ flex: 1, borderRadius: 24, border: "0.5px solid rgba(0,0,0,0.15)", background: "#fff", padding: "14px 0", fontSize: 15, fontWeight: 500, cursor: "pointer", color: "#3F3F46" }}>
+            ← Tilbake
+          </button>
+          <button type="button"
+            style={{ flex: 2, ...btn, marginTop: 0 }}
+            onClick={() => setSteg(3)}
+          >
+            {utdanning ? "Neste →" : "Hopp over →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Steg 3 — Beskriv deg selv ──
+  if (steg === 3) return (
     <div style={base}>
       <div style={inner}>
         <Dots steg={2} />
@@ -307,14 +391,14 @@ export default function OnboardingPage() {
         </div>
 
         <div style={{ display: "flex", gap: 12, marginTop: 32 }}>
-          <button type="button" onClick={() => setSteg(1)}
+          <button type="button" onClick={() => setSteg(2)}
             style={{ flex: 1, borderRadius: 24, border: "0.5px solid rgba(0,0,0,0.15)", background: "#fff", padding: "14px 0", fontSize: 15, fontWeight: 500, cursor: "pointer", color: "#3F3F46" }}>
             ← Tilbake
           </button>
           <button
             type="button"
             style={{ flex: 2, ...btn, marginTop: 0 }}
-            onClick={() => setSteg(3)}
+            onClick={() => setSteg(4)}
           >
             {bio.trim() ? "Start agenten →" : "Hopp over →"}
           </button>
