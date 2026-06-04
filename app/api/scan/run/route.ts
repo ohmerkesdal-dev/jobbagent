@@ -213,11 +213,16 @@ export async function POST(request: Request) {
     try {
       const søk      = `${søkeProfil.primær} ${geografi} Norway`;
       const apifyRes = await fetch(
-        `https://api.apify.com/v2/actors/bebity~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
+        `https://api.apify.com/v2/actors/orgupdate~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ queries: [søk], maxResults: 10, datePostedFilter: "week", proxyCountry: "NO" }),
+          body:    JSON.stringify({
+            country:           "NO",
+            targetCities:      [geografi],
+            keywordsToInclude: søkeProfil.primær,
+            locationName:      geografi,
+          }),
           cache:   "no-store",
           signal:  AbortSignal.timeout(120000),
         }
@@ -262,15 +267,15 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── DEL 3 — LinkedIn Jobs via Apify (bebity~linkedin-jobs-scraper) ─────────
+  // ── DEL 3 — LinkedIn Jobs via Apify (curious_coder~linkedin-jobs-scraper) ──
   if (apifyKey) {
     try {
       const liRes = await fetch(
-        `https://api.apify.com/v2/actors/bebity~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
+        `https://api.apify.com/v2/actors/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ queries: [`${søkeProfil.primær} ${geografi}`], location: "Norway", maxResults: 10 }),
+          body:    JSON.stringify({ queries: [`${søkeProfil.primær} ${geografi} Norway`], maxResults: 10 }),
           cache:   "no-store",
           signal:  AbortSignal.timeout(120000),
         }
