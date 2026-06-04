@@ -7,7 +7,7 @@ import { isWebScanEnabled } from "@/lib/scanner-web-config";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 type Body = { profile?: ProfilScanInput; selskaper?: unknown };
 
@@ -213,13 +213,13 @@ export async function POST(request: Request) {
     try {
       const søk      = `${søkeProfil.primær} ${geografi} Norway`;
       const apifyRes = await fetch(
-        `https://api.apify.com/v2/actors/khadinakbar~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
+        `https://api.apify.com/v2/actors/bebity~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({ queries: [søk], maxResults: 10, datePostedFilter: "week", proxyCountry: "NO" }),
           cache:   "no-store",
-          signal:  AbortSignal.timeout(25000),
+          signal:  AbortSignal.timeout(120000),
         }
       );
       if (apifyRes.ok) {
@@ -262,17 +262,17 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── DEL 3 — LinkedIn Jobs via Apify (khadinakbar~linkedin-jobs-scraper) ───
+  // ── DEL 3 — LinkedIn Jobs via Apify (bebity~linkedin-jobs-scraper) ─────────
   if (apifyKey) {
     try {
       const liRes = await fetch(
-        `https://api.apify.com/v2/actors/khadinakbar~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
+        `https://api.apify.com/v2/actors/bebity~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({ queries: [`${søkeProfil.primær} ${geografi}`], location: "Norway", maxResults: 10 }),
           cache:   "no-store",
-          signal:  AbortSignal.timeout(25000),
+          signal:  AbortSignal.timeout(120000),
         }
       );
       if (liRes.ok) {
