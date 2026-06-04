@@ -207,31 +207,29 @@ export async function POST(request: Request) {
   console.log("NAV relevante stillinger:", funn.filter(f => f.kildeNavn === "NAV").length);
   console.log("Historiske signaler:", funn.filter(f => f.signalSubtype === "historisk").length);
 
-  // ── DEL 2 — Google Jobs via Apify ─────────────────────────────────────────
+  // ── DEL 2 — Google Jobs via Apify (johnvc~Google-Jobs-Scraper) ──────────────
   const apifyKey = process.env.APIFY_API_KEY;
   if (apifyKey) {
     try {
-      const søk      = `${søkeProfil.primær} ${geografi} Norway`;
-      const apifyRes = await fetch(
-        `https://api.apify.com/v2/actors/orgupdate~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
+      const googleRes = await fetch(
+        `https://api.apify.com/v2/actors/johnvc~Google-Jobs-Scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({
-            country:           "NO",
-            targetCities:      [geografi],
-            keywordsToInclude: søkeProfil.primær,
-            locationName:      geografi,
+            queries:    [`${søkeProfil.primær} ${geografi} Norway`],
+            maxResults: 10,
+            country:    "NO",
+            language:   "no",
           }),
-          cache:   "no-store",
-          signal:  AbortSignal.timeout(120000),
+          cache:  "no-store",
+          signal: AbortSignal.timeout(120000),
         }
       );
-      if (apifyRes.ok) {
-        const jobs = (await apifyRes.json()) as Array<Record<string, unknown>>;
-        // Debug: vis første jobb-objekt råformat
-        if (jobs?.[0]) console.log("Apify rådata første jobb:", JSON.stringify(jobs[0], null, 2));
-        for (const job of (jobs ?? [])) {
+      if (googleRes.ok) {
+        const gjJobs = (await googleRes.json()) as Array<Record<string, unknown>>;
+        if (gjJobs?.[0]) console.log("Google Jobs første:", JSON.stringify(gjJobs[0]));
+        for (const job of (gjJobs ?? [])) {
           const title = String(job.title ?? "").trim();
           if (!title) continue;
           const tekst = `${title} ${String(job.description ?? "")}`.toLowerCase();
@@ -255,11 +253,11 @@ export async function POST(request: Request) {
             funnetDato:  now,
           });
         }
-        console.log("Google Jobs (Apify):", jobs?.length, "treff →", funn.filter(f => f.kilde === "Google Jobs").length, "relevante");
+        console.log("Google Jobs (Apify):", gjJobs?.length, "treff →", funn.filter(f => f.kilde === "Google Jobs").length, "relevante");
       } else {
-        const txt = await apifyRes.text().catch(() => "");
-        console.log("Apify Google Jobs feilet:", apifyRes.status, txt.slice(0, 200));
-        warnings.push(`Apify Google Jobs: ${apifyRes.status}`);
+        const txt = await googleRes.text().catch(() => "");
+        console.log("Google Jobs feilet:", googleRes.status, txt.slice(0, 200));
+        warnings.push(`Apify Google Jobs: ${googleRes.status}`);
       }
     } catch (e) {
       console.error("Apify Google Jobs feil:", e instanceof Error ? e.message : e);
