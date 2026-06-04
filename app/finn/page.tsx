@@ -42,7 +42,7 @@ const SIGNAL_META: Record<SignalSubtype, { label: string; timing: string; cls: s
 // Subtypes som vises i signal-kolonnen på selskapskort (ikke bransjenyhet)
 const SIGNAL_SUBTYPES_PÅ_KORT: SignalSubtype[] = ["funding", "ny-ledelse", "vekst", "ansetter", "historisk"];
 
-function KildePill({ kildeNavn }: { kildeNavn?: string }) {
+function KildePill({ kildeNavn, onClick }: { kildeNavn?: string; onClick?: () => void }) {
   if (!kildeNavn || kildeNavn === "Nett" || kildeNavn === "Jobb") return null;
   const style: Record<string, React.CSSProperties> = {
     LinkedIn:      { background: "#E6F1FB", color: "#0C447C" },
@@ -52,13 +52,16 @@ function KildePill({ kildeNavn }: { kildeNavn?: string }) {
     Karriereside:  { background: "#FDF4FF", color: "#7C3AED" },
     "Google Jobs": { background: "#F0F7FF", color: "#1D4ED8" },
   };
+  const Tag = onClick ? "button" : "span";
   return (
-    <span
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
       className="rounded-full px-2 py-0.5 text-[9px] font-semibold"
-      style={style[kildeNavn] ?? { background: "#F4F4F5", color: "#52525B" }}
+      style={{ ...(style[kildeNavn] ?? { background: "#F4F4F5", color: "#52525B" }), cursor: onClick ? "pointer" : "default" }}
     >
       {kildeNavn}
-    </span>
+    </Tag>
   );
 }
 
@@ -331,6 +334,32 @@ export default function FinnPage() {
     return r;
   }, [filtrerte, kildeFilter, typeFilter]);
 
+  // Filtrer flat-listene med samme kilde/type-filter
+  const ugrupperteFiltiert = useMemo(() => {
+    let r = ugrupperteStillinger.filter(f => !f.deadline || new Date(f.deadline).getTime() > Date.now());
+    if (kildeFilter !== "alle") r = r.filter(f => f.kildeNavn === kildeFilter);
+    if (typeFilter === "signal" || typeFilter === "fulgt") r = [];
+    return r;
+  }, [ugrupperteStillinger, kildeFilter, typeFilter]);
+
+  const signalFlatFiltrert = useMemo(() => {
+    let r = signalFlat;
+    if (kildeFilter !== "alle") r = r.filter(f => f.kildeNavn === kildeFilter || f.kilde?.includes(kildeFilter));
+    if (typeFilter === "stilling" || typeFilter === "fulgt") r = [];
+    return r;
+  }, [signalFlat, kildeFilter, typeFilter]);
+
+  // Tell per kilde for badge
+  const kildeCount = useMemo(() => {
+    const alleFunn = [...funn];
+    return {
+      NAV:         alleFunn.filter(f => f.kildeNavn === "NAV").length,
+      LinkedIn:    alleFunn.filter(f => f.kildeNavn === "LinkedIn").length,
+      "Finn.no":   alleFunn.filter(f => f.kildeNavn === "Finn.no").length,
+      Bedriftssider: alleFunn.filter(f => f.kildeNavn === "Karriereside" || f.kilde === "Google Jobs").length,
+    } as Record<string, number>;
+  }, [funn]);
+
   // Seksjonsbasert på matchData
   const høyRelevans     = filtratFinal.filter(k => (matchData[k.id]?.matchScore ?? 0) >= 70);
   const middelsRelevans = filtratFinal.filter(k => { const m = matchData[k.id]?.matchScore ?? 0; return m >= 40 && m < 70; });
@@ -480,13 +509,21 @@ export default function FinnPage() {
             ))}
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {(["alle","NAV","LinkedIn","Finn.no","Bedriftssider"] as const).map(k => (
-              <button key={k} type="button" onClick={() => setKildeFilter(k)}
-                className="rounded-full px-3 py-1 text-xs font-medium transition"
-                style={{ border: "0.5px solid", borderColor: kildeFilter === k ? "#111" : "rgba(0,0,0,0.12)", background: kildeFilter === k ? "#111" : "#fff", color: kildeFilter === k ? "#fff" : "#3F3F46" }}>
-                {k === "alle" ? "Alle kilder" : k}
-              </button>
-            ))}
+            {(["alle","NAV","LinkedIn","Finn.no","Bedriftssider"] as const).map(k => {
+              const count = k === "alle" ? null : (kildeCount[k] ?? 0);
+              return (
+                <button key={k} type="button" onClick={() => setKildeFilter(k)}
+                  className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition"
+                  style={{ border: "0.5px solid", borderColor: kildeFilter === k ? "#111" : "rgba(0,0,0,0.12)", background: kildeFilter === k ? "#111" : "#fff", color: kildeFilter === k ? "#fff" : "#3F3F46" }}>
+                  {k === "alle" ? "Alle kilder" : k}
+                  {count !== null && count > 0 && (
+                    <span className="rounded-full px-1.5 text-[10px]" style={{ background: kildeFilter === k ? "rgba(255,255,255,0.2)" : "#F4F4F5" }}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           <div className="flex flex-wrap gap-1.5">
             {([
@@ -815,16 +852,17 @@ export default function FinnPage() {
         </>
         )}
         {/* ── Stillinger uten kjent selskap (flat liste) ─────────────── */}
-        {ugrupperteStillinger.length > 0 && (
+        {ugrupperteFiltiert.length > 0 && (
           <div className="mt-10">
             <div className="mb-4 flex items-center gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">Ledige stillinger</p>
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{ugrupperteStillinger.length}</span>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{ugrupperteFiltiert.length}</span>
+              {kildeFilter !== "alle" && (
+                <span className="text-[11px] text-zinc-400">filtrert på {kildeFilter}</span>
+              )}
             </div>
             <div className="flex flex-col gap-3">
-              {ugrupperteStillinger
-                .filter(f => !f.deadline || new Date(f.deadline).getTime() > Date.now())
-                .map((f) => {
+              {ugrupperteFiltiert.map((f) => {
                 const d = f.deadline ? Math.ceil((new Date(f.deadline).getTime() - Date.now()) / 86_400_000) : null;
                 return (
                   <div key={f.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
@@ -856,14 +894,14 @@ export default function FinnPage() {
         )}
 
         {/* ── Signaler (flat liste) ───────────────────────────────────── */}
-        {signalFlat.length > 0 && (
+        {signalFlatFiltrert.length > 0 && (
           <div className="mt-10">
             <div className="mb-4 flex items-center gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">Markedssignaler</p>
-              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-600">{signalFlat.length}</span>
+              <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-600">{signalFlatFiltrert.length}</span>
             </div>
             <div className="flex flex-col gap-3">
-              {signalFlat.map((f) => {
+              {signalFlatFiltrert.map((f) => {
                 const meta = f.signalSubtype ? SIGNAL_META[f.signalSubtype] : null;
                 return (
                   <div key={f.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
