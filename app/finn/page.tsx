@@ -453,7 +453,7 @@ export default function FinnPage() {
                     <p className="mt-0.5 truncate text-[11px] font-medium text-zinc-800">{felt.verdi}</p>
                   ) : (
                     <p className="mt-0.5 text-[11px] italic" style={{ color: "#A32D2D" }}>
-                      <a href="/onboarding" style={{ color: "#0F6E56" }}>Legg til</a>
+                      <a href="/kjenn" style={{ color: "#0F6E56" }}>Legg til</a>
                     </p>
                   )}
                 </div>

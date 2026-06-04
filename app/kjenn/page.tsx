@@ -43,6 +43,9 @@ export default function KjennPage() {
   const [utdanning, setUtdanning] = useState<string>(up?.utdanning ?? "");
   const [sertifiseringer, setSertifiseringer] = useState<string[]>(up?.sertifiseringer ?? []);
   const [sertInput, setSertInput] = useState("");
+  const [ferdigheter, setFerdigheter] = useState<string[]>(up?.ferdigheter ?? []);
+  const [ferdInput, setFerdInput] = useState("");
+  const [geografi, setGeografi] = useState<string>(up?.geografi ?? "");
   const [s1Tekst, setS1Tekst] = useState("");
   const [s1Submitted, setS1Submitted] = useState(false);
   const [s1Valg, setS1Valg] = useState<number | null>(null);
@@ -433,6 +436,57 @@ export default function KjennPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Geografi og ferdigheter */}
+            <div className="mt-4 border-t border-zinc-100 pt-4 space-y-3">
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Geografi</p>
+                <input
+                  value={geografi}
+                  onChange={e => {
+                    setGeografi(e.target.value);
+                    const p = getStoredUserProfile();
+                    if (p) { p.geografi = e.target.value; localStorage.setItem("userProfile", JSON.stringify(p)); }
+                  }}
+                  placeholder="F.eks: Oslo"
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs outline-none focus:border-[#1D9E75]/60"
+                />
+              </div>
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Ferdigheter</p>
+                <input
+                  value={ferdInput}
+                  onChange={e => setFerdInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && ferdInput.trim()) {
+                      const ny = [...ferdigheter, ferdInput.trim()];
+                      setFerdigheter(ny);
+                      setFerdInput("");
+                      const p = getStoredUserProfile();
+                      if (p) { p.ferdigheter = ny; localStorage.setItem("userProfile", JSON.stringify(p)); }
+                      e.preventDefault();
+                    }
+                  }}
+                  placeholder="Trykk Enter for å legge til…"
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs outline-none focus:border-[#1D9E75]/60"
+                />
+                {ferdigheter.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {ferdigheter.map((f, i) => (
+                      <span key={i} className="flex items-center gap-1 rounded-full bg-zinc-900 px-2.5 py-0.5 text-[11px] text-white">
+                        {f}
+                        <button type="button" onClick={() => {
+                          const ny = ferdigheter.filter((_, j) => j !== i);
+                          setFerdigheter(ny);
+                          const p = getStoredUserProfile();
+                          if (p) { p.ferdigheter = ny; localStorage.setItem("userProfile", JSON.stringify(p)); }
+                        }} className="ml-0.5 text-zinc-400 hover:text-white">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Prestasjoner */}

@@ -212,9 +212,12 @@ export async function POST(request: Request) {
     const hdr = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
 
     const braveSøk = [
-      // Finn direkte annonser
+      // Finn direkte annonser (site:-format)
       `site:finn.no/job/ad "${søkeProfil.primær}" ${geografi}`,
       `site:finn.no/job/ad "${søkeProfil.primær}" norge`,
+      // Finn Google-stil (bredere dekning)
+      `finn.no/job ${søkeProfil.primær} ${geografi} ${iÅr}`,
+      `finn.no "${søkeProfil.primær}" stilling søknadsfrist ${iÅr}`,
       // LinkedIn
       `site:linkedin.com/jobs "${søkeProfil.primær}" ${geografi} ${iÅr}`,
       `site:linkedin.com/posts "${søkeProfil.primær}" "vi søker" OR "ledig stilling" ${iÅr}`,
