@@ -211,18 +211,21 @@ export async function POST(request: Request) {
   const apifyKey = process.env.APIFY_API_KEY;
   if (apifyKey) {
     try {
-      const søk       = `${søkeProfil.primær} ${geografi} Norway`;
-      const apifyRes  = await fetch(
-        `https://api.apify.com/v2/acts/khadinakbar~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}&timeout=60`,
+      const søk      = `${søkeProfil.primær} ${geografi} Norway`;
+      const apifyRes = await fetch(
+        `https://api.apify.com/v2/actors/khadinakbar~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({ queries: [søk], maxResults: 10, datePostedFilter: "week", proxyCountry: "NO" }),
           cache:   "no-store",
+          signal:  AbortSignal.timeout(25000),
         }
       );
       if (apifyRes.ok) {
         const jobs = (await apifyRes.json()) as Array<Record<string, unknown>>;
+        // Debug: vis første jobb-objekt råformat
+        if (jobs?.[0]) console.log("Apify rådata første jobb:", JSON.stringify(jobs[0], null, 2));
         for (const job of (jobs ?? [])) {
           const title = String(job.title ?? "").trim();
           if (!title) continue;
@@ -238,10 +241,10 @@ export async function POST(request: Request) {
             signalType:  "Utlyst stilling",
             kategori:    "stilling",
             title,
-            company:     String(job.company ?? "") || undefined,
+            company:     String(job.company ?? job.companyName ?? "") || undefined,
             location:    String(job.location ?? "") || geografi,
             beskrivelse: String(job.description ?? "").slice(0, 300) || undefined,
-            url:         String(job.applyLink ?? job.jobUrl ?? ""),
+            url:         String(job.applyLink ?? job.jobUrl ?? job.url ?? ""),
             kilde:       "Google Jobs",
             kildeNavn,
             funnetDato:  now,
@@ -250,7 +253,7 @@ export async function POST(request: Request) {
         console.log("Google Jobs (Apify):", jobs?.length, "treff →", funn.filter(f => f.kilde === "Google Jobs").length, "relevante");
       } else {
         const txt = await apifyRes.text().catch(() => "");
-        console.log("Apify Google Jobs feilet:", apifyRes.status, txt.slice(0, 120));
+        console.log("Apify Google Jobs feilet:", apifyRes.status, txt.slice(0, 200));
         warnings.push(`Apify Google Jobs: ${apifyRes.status}`);
       }
     } catch (e) {
@@ -259,20 +262,22 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── DEL 3 — LinkedIn Jobs via Apify ───────────────────────────────────────
+  // ── DEL 3 — LinkedIn Jobs via Apify (khadinakbar~linkedin-jobs-scraper) ───
   if (apifyKey) {
     try {
       const liRes = await fetch(
-        `https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}&timeout=60`,
+        `https://api.apify.com/v2/actors/khadinakbar~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}`,
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({ queries: [`${søkeProfil.primær} ${geografi}`], location: "Norway", maxResults: 10 }),
           cache:   "no-store",
+          signal:  AbortSignal.timeout(25000),
         }
       );
       if (liRes.ok) {
         const liJobs = (await liRes.json()) as Array<Record<string, unknown>>;
+        if (liJobs?.[0]) console.log("LinkedIn første:", JSON.stringify(liJobs[0]));
         for (const job of (liJobs ?? [])) {
           const title = String(job.title ?? "").trim();
           if (!title) continue;
@@ -292,11 +297,12 @@ export async function POST(request: Request) {
         }
         console.log("LinkedIn Jobs (Apify):", liJobs?.length, "treff →", funn.filter(f => f.kilde === "LinkedIn").length, "totalt LinkedIn");
       } else {
-        console.log("Apify LinkedIn feilet:", liRes.status);
+        const txt = await liRes.text().catch(() => "");
+        console.log("LinkedIn feilet:", liRes.status, txt.slice(0, 200));
         warnings.push(`Apify LinkedIn: ${liRes.status}`);
       }
     } catch (e) {
-      console.error("Apify LinkedIn feil:", e instanceof Error ? e.message : e);
+      console.error("LinkedIn feil:", e instanceof Error ? e.message : e);
       warnings.push(`Apify LinkedIn: ${e instanceof Error ? e.message : "feil"}`);
     }
   }
