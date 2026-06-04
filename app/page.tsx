@@ -40,15 +40,14 @@ export default function Home() {
   const searchSectionRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
 
-  // Redirect: med profil → /finn, uten profil → /onboarding
+  const [harProfil, setHarProfil] = useState(false);
+
+  // Sjekk om profil finnes — ikke redirect, vis landing-siden
   useEffect(() => {
     try {
       const p = localStorage.getItem("userProfile");
-      const harProfil = p && JSON.parse(p)?.soker;
-      router.replace(harProfil ? "/finn" : "/onboarding");
-    } catch {
-      router.replace("/onboarding");
-    }
+      setHarProfil(!!(p && JSON.parse(p)?.soker));
+    } catch {}
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [query, setQuery] = useState("");
   const [navn, setNavn] = useState("");
@@ -361,19 +360,29 @@ export default function Home() {
 
           {/* CTA-knapper — bunnen sentert */}
           <div className="absolute bottom-10 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => searchSectionRef.current?.scrollIntoView({ behavior: "smooth" })}
-              className="rounded-full bg-zinc-950 px-8 py-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            >
-              Start nå
-            </button>
+            {harProfil ? (
+              <button
+                type="button"
+                onClick={() => router.push("/finn")}
+                className="rounded-full bg-zinc-950 px-8 py-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                Gå til feeden →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => router.push("/onboarding")}
+                className="rounded-full bg-zinc-950 px-8 py-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                Kom i gang gratis →
+              </button>
+            )}
             <button
               type="button"
               onClick={() => searchSectionRef.current?.scrollIntoView({ behavior: "smooth" })}
               className="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-300 bg-white text-base text-zinc-950 transition hover:bg-zinc-50"
             >
-              ↗
+              ↓
             </button>
           </div>
 

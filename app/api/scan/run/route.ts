@@ -351,12 +351,22 @@ export async function POST(request: Request) {
           if (!søkeProfil.alle.some(ord => tekst.includes(ord.toLowerCase()))) continue;
 
           // Klassifiser
-          const erLinkedIn = itemUrl.includes("linkedin.com");
-          const erFinn     = /finn\.no\/job\/(ad\/)?\d+/.test(itemUrl);
-          const erSignal   = SIGNAL_ORD.some(s => tekst.includes(s));
+          const erLinkedIn  = itemUrl.includes("linkedin.com");
+          const erFinn      = /finn\.no\/job\/(ad\/)?\d+/.test(itemUrl);
+          const erSignal    = SIGNAL_ORD.some(s => tekst.includes(s));
+          const erJobbSite  = erFinn || erLinkedIn
+            || itemUrl.includes("arbeidsplassen.nav.no/stillinger")
+            || itemUrl.includes("webcruiter.com")
+            || itemUrl.includes("careers.")
+            || itemUrl.includes("/careers");
+          const JOBB_ORD    = ["søker","ledig stilling","vi ansetter","søknadsfrist","stilling ledig","hiring","job opening","utlyser","rekrutterer"];
+          const harJobbOrd  = JOBB_ORD.some(o => tekst.includes(o));
 
           // Skip LinkedIn-profiler
           if (erLinkedIn && itemUrl.includes("/in/")) continue;
+
+          // Generiske nettsider uten jobbdomain og uten jobbord → hopp over
+          if (!erJobbSite && !erSignal && !harJobbOrd) continue;
 
           // Ugyldig Finn-tittel
           const ugyldigeTitler = ["alle har rett","godt liv","søk uten cv","lignende annonser","finn jobb"];

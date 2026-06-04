@@ -262,6 +262,36 @@ export default function ProfilPage() {
               </p>
             </label>
 
+            <div className="grid gap-6 md:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Høyeste utdanning
+                </span>
+                <select
+                  value={(profile as UserProfile & { utdanning?: string }).utdanning ?? ""}
+                  onChange={e => setProfile(cur => ({ ...cur, utdanning: e.target.value } as UserProfile))}
+                  className="mt-2 w-full rounded-3xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                >
+                  <option value="">Ikke valgt</option>
+                  {["Videregående","Fagbrev","Bachelor","Master","PhD","Annet"].map(u => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Sertifiseringer (kommaseparert)
+                </span>
+                <input
+                  value={((profile as UserProfile & { sertifiseringer?: string[] }).sertifiseringer ?? []).join(", ")}
+                  onChange={e => setProfile(cur => ({ ...cur, sertifiseringer: e.target.value.split(",").map(s => s.trim()).filter(Boolean) } as UserProfile))}
+                  className={`mt-2 ${formControlRounded3xl}`}
+                  placeholder="F.eks: Statsautorisert regnskapsfører, PMP"
+                />
+              </label>
+            </div>
+
             <label className="block">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 Selskaper å følge
