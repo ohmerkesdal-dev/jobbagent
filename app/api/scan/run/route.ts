@@ -207,7 +207,101 @@ export async function POST(request: Request) {
   console.log("NAV relevante stillinger:", funn.filter(f => f.kildeNavn === "NAV").length);
   console.log("Historiske signaler:", funn.filter(f => f.signalSubtype === "historisk").length);
 
-  // ── DEL 2+3+4 — Unified Brave Search ──────────────────────────────────────
+  // ── DEL 2 — Google Jobs via Apify ─────────────────────────────────────────
+  const apifyKey = process.env.APIFY_API_KEY;
+  if (apifyKey) {
+    try {
+      const søk       = `${søkeProfil.primær} ${geografi} Norway`;
+      const apifyRes  = await fetch(
+        `https://api.apify.com/v2/acts/khadinakbar~google-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}&timeout=60`,
+        {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ queries: [søk], maxResults: 10, datePostedFilter: "week", proxyCountry: "NO" }),
+          cache:   "no-store",
+        }
+      );
+      if (apifyRes.ok) {
+        const jobs = (await apifyRes.json()) as Array<Record<string, unknown>>;
+        for (const job of (jobs ?? [])) {
+          const title = String(job.title ?? "").trim();
+          if (!title) continue;
+          const tekst = `${title} ${String(job.description ?? "")}`.toLowerCase();
+          if (!søkeProfil.alle.some(ord => tekst.includes(ord.toLowerCase()))) continue;
+          const via = String(job.via ?? "").toLowerCase();
+          const kildeNavn = via.includes("finn") ? "Finn.no"
+            : via.includes("linkedin") ? "LinkedIn"
+            : via.includes("nav")      ? "NAV"
+            : String(job.via ?? "Google Jobs");
+          funn.push({
+            id:          randomUUID(),
+            signalType:  "Utlyst stilling",
+            kategori:    "stilling",
+            title,
+            company:     String(job.company ?? "") || undefined,
+            location:    String(job.location ?? "") || geografi,
+            beskrivelse: String(job.description ?? "").slice(0, 300) || undefined,
+            url:         String(job.applyLink ?? job.jobUrl ?? ""),
+            kilde:       "Google Jobs",
+            kildeNavn,
+            funnetDato:  now,
+          });
+        }
+        console.log("Google Jobs (Apify):", jobs?.length, "treff →", funn.filter(f => f.kilde === "Google Jobs").length, "relevante");
+      } else {
+        const txt = await apifyRes.text().catch(() => "");
+        console.log("Apify Google Jobs feilet:", apifyRes.status, txt.slice(0, 120));
+        warnings.push(`Apify Google Jobs: ${apifyRes.status}`);
+      }
+    } catch (e) {
+      console.error("Apify Google Jobs feil:", e instanceof Error ? e.message : e);
+      warnings.push(`Apify Google Jobs: ${e instanceof Error ? e.message : "feil"}`);
+    }
+  }
+
+  // ── DEL 3 — LinkedIn Jobs via Apify ───────────────────────────────────────
+  if (apifyKey) {
+    try {
+      const liRes = await fetch(
+        `https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items?token=${apifyKey}&timeout=60`,
+        {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ queries: [`${søkeProfil.primær} ${geografi}`], location: "Norway", maxResults: 10 }),
+          cache:   "no-store",
+        }
+      );
+      if (liRes.ok) {
+        const liJobs = (await liRes.json()) as Array<Record<string, unknown>>;
+        for (const job of (liJobs ?? [])) {
+          const title = String(job.title ?? "").trim();
+          if (!title) continue;
+          funn.push({
+            id:          randomUUID(),
+            signalType:  "LinkedIn",
+            kategori:    "stilling",
+            title,
+            company:     String(job.company ?? job.companyName ?? "") || undefined,
+            location:    String(job.location ?? "") || geografi,
+            beskrivelse: String(job.description ?? job.snippet ?? "").slice(0, 300) || undefined,
+            url:         String(job.jobUrl ?? job.url ?? ""),
+            kilde:       "LinkedIn",
+            kildeNavn:   "LinkedIn",
+            funnetDato:  now,
+          });
+        }
+        console.log("LinkedIn Jobs (Apify):", liJobs?.length, "treff →", funn.filter(f => f.kilde === "LinkedIn").length, "totalt LinkedIn");
+      } else {
+        console.log("Apify LinkedIn feilet:", liRes.status);
+        warnings.push(`Apify LinkedIn: ${liRes.status}`);
+      }
+    } catch (e) {
+      console.error("Apify LinkedIn feil:", e instanceof Error ? e.message : e);
+      warnings.push(`Apify LinkedIn: ${e instanceof Error ? e.message : "feil"}`);
+    }
+  }
+
+  // ── DEL 4+5+6 — Unified Brave Search ──────────────────────────────────────
   if (webEnabled) {
     const hdr = { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! };
 
