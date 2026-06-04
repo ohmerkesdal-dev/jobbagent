@@ -541,11 +541,45 @@ export default function FinnPage() {
 
         {/* Del 2 — Seksjonsbaserte selskaps-kort */}
         {filtratFinal.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-dashed border-zinc-200 py-14 text-center">
-            <p className="text-sm text-zinc-500">
-              {funn.length === 0 ? "Trykk «Oppdater» for å starte skanningen." : "Ingen selskaper i denne kategorien."}
-            </p>
-          </div>
+          funn.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-zinc-200 py-14 text-center">
+              <p className="text-sm text-zinc-500">Trykk «Oppdater» for å starte skanningen.</p>
+            </div>
+          ) : ugrupperteFiltiert.length > 0 ? (
+            /* Filter er aktivt og ingen selskapskort — vis flat liste direkte her */
+            <div className="mt-6 flex flex-col gap-3">
+              <p className="text-xs text-zinc-400">
+                {kildeFilter !== "alle" ? `${ugrupperteFiltiert.length} ${kildeFilter}-stillinger funnet (ingen selskapsnavn tilgjengelig)` : "Ingen selskapskort — viser stillinger direkte"}
+              </p>
+              {ugrupperteFiltiert.map((f) => {
+                const d = f.deadline ? Math.ceil((new Date(f.deadline).getTime() - Date.now()) / 86_400_000) : null;
+                return (
+                  <div key={f.id} className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                        <KildePill kildeNavn={f.kildeNavn} onClick={() => setKildeFilter(f.kildeNavn as typeof kildeFilter ?? "alle")} />
+                        {d !== null && d > 0 && (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${d <= 3 ? "bg-red-100 text-red-700" : d <= 7 ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+                            {d === 1 ? "Siste dag!" : `${d}d igjen`}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-zinc-900 leading-snug">{f.title.replace(/\s*\|\s*(FINN\.no|NAV|Webcruiter|LinkedIn).*/i, "")}</p>
+                      {f.beskrivelse && <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500">{f.beskrivelse}</p>}
+                    </div>
+                    <a href={f.url} target="_blank" rel="noopener noreferrer"
+                      className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50">
+                      Se stilling ↗
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-6 rounded-2xl border border-dashed border-zinc-200 py-14 text-center">
+              <p className="text-sm text-zinc-500">Ingen resultater for dette filteret.</p>
+            </div>
+          )
         ) : (
         <>
         {([
