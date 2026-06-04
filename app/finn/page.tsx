@@ -96,6 +96,7 @@ export default function FinnPage() {
   const [relevansFilter, setRelevansFilter] = useState<"alle" | "høy" | "middels" | "lav">("alle");
   const [kildeFilter, setKildeFilter] = useState<"alle" | "NAV" | "LinkedIn" | "Finn.no" | "Bedriftssider">("alle");
   const [typeFilter, setTypeFilter] = useState<"alle" | "stilling" | "signal" | "fulgt">("alle");
+  const [skjulteIds, setSkjulteIds] = useState<Set<string>>(new Set());
   const analyzingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -528,14 +529,15 @@ export default function FinnPage() {
               <span className="text-[11px] text-zinc-400">{sek.sub}</span>
             </div>
             <div className="flex flex-col gap-4">
-              {sek.liste.map((kort) => {
-            const score       = beregnMatchScore(kort);
-            const isAdded     = addedIds.has(kort.id);
-            const isGen       = generererKontakt.has(kort.id);
-            const melding     = kontaktmeldinger.get(kort.id);
-            const harStilling = kort.stillinger.length > 0;
-            const harSignal   = kort.signaler.length > 0;
-            const harPerson   = kort.personer.length > 0;
+              {sek.liste.filter(k => !skjulteIds.has(k.id)).map((kort) => {
+            const erLavSeksjon = sek.erLav;
+            const score        = beregnMatchScore(kort);
+            const isAdded      = addedIds.has(kort.id);
+            const isGen        = generererKontakt.has(kort.id);
+            const melding      = kontaktmeldinger.get(kort.id);
+            const harStilling  = kort.stillinger.length > 0;
+            const harSignal    = kort.signaler.length > 0;
+            const harPerson    = kort.personer.length > 0;
 
             return (
               <div key={kort.id} className="overflow-hidden rounded-xl bg-white"
@@ -720,10 +722,16 @@ export default function FinnPage() {
 
                 {/* ── Footer-handlinger ── */}
                 <div className="flex flex-wrap items-start gap-2 border-t border-zinc-100 bg-zinc-50 px-4 py-2.5">
-                  {harStilling && (
+                  {harStilling && !erLavSeksjon && (
                     <button type="button" onClick={() => velgOgGa(kort)}
                       className="rounded-lg bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800">
                       Generer søknad
+                    </button>
+                  )}
+                  {erLavSeksjon && (
+                    <button type="button" onClick={() => setSkjulteIds(prev => new Set([...prev, kort.id]))}
+                      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-50">
+                      Skjul denne typen
                     </button>
                   )}
                   {!harStilling && harSignal && (

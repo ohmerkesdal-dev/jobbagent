@@ -40,6 +40,9 @@ export default function KjennPage() {
   const [pp, setPp] = useState<PersonProfile>({ erfaringer: [], verdier: [], arbeidsstil: [], prestasjoner: [] });
   const [up] = useState(() => getStoredUserProfile());
   const [steg, setSteg] = useState<1 | 2 | 3 | 4>(1);
+  const [utdanning, setUtdanning] = useState<string>(up?.utdanning ?? "");
+  const [sertifiseringer, setSertifiseringer] = useState<string[]>(up?.sertifiseringer ?? []);
+  const [sertInput, setSertInput] = useState("");
   const [s1Tekst, setS1Tekst] = useState("");
   const [s1Submitted, setS1Submitted] = useState(false);
   const [s1Valg, setS1Valg] = useState<number | null>(null);
@@ -379,6 +382,58 @@ export default function KjennPage() {
                 </div>
               </div>
             )}
+
+            {/* Utdanning og sertifiseringer */}
+            <div className="mt-4 border-t border-zinc-100 pt-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Utdanning</p>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {["Videregående","Fagbrev","Bachelor","Master","PhD","Annet"].map(u => (
+                  <button key={u} type="button"
+                    onClick={() => {
+                      const ny = utdanning === u ? "" : u;
+                      setUtdanning(ny);
+                      const p = getStoredUserProfile();
+                      if (p) { p.utdanning = ny || undefined; localStorage.setItem("userProfile", JSON.stringify(p)); }
+                    }}
+                    className="rounded-full px-2.5 py-1 text-[11px] font-medium transition"
+                    style={{ border: "0.5px solid", borderColor: utdanning === u ? "#111" : "rgba(0,0,0,0.12)", background: utdanning === u ? "#111" : "#fff", color: utdanning === u ? "#fff" : "#3F3F46" }}>
+                    {u}
+                  </button>
+                ))}
+              </div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Sertifiseringer</p>
+              <input
+                value={sertInput}
+                onChange={e => setSertInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && sertInput.trim()) {
+                    const ny = [...sertifiseringer, sertInput.trim()];
+                    setSertifiseringer(ny);
+                    setSertInput("");
+                    const p = getStoredUserProfile();
+                    if (p) { p.sertifiseringer = ny; localStorage.setItem("userProfile", JSON.stringify(p)); }
+                    e.preventDefault();
+                  }
+                }}
+                placeholder="Trykk Enter for å legge til…"
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs outline-none focus:border-[#1D9E75]/60"
+              />
+              {sertifiseringer.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {sertifiseringer.map((s, i) => (
+                    <span key={i} className="flex items-center gap-1 rounded-full bg-zinc-900 px-2.5 py-0.5 text-[11px] text-white">
+                      {s}
+                      <button type="button" onClick={() => {
+                        const ny = sertifiseringer.filter((_, j) => j !== i);
+                        setSertifiseringer(ny);
+                        const p = getStoredUserProfile();
+                        if (p) { p.sertifiseringer = ny; localStorage.setItem("userProfile", JSON.stringify(p)); }
+                      }} className="ml-0.5 text-zinc-400 hover:text-white">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Prestasjoner */}
             <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
